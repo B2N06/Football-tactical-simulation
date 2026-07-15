@@ -15,12 +15,29 @@ interface PossessionOutcome {
 
 const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x))
 
-function nearestPressure(point: Vec2, defenders: PlayerTacticalProfile[], tactics: TeamTactics): number {
-  const nearest = Math.min(...defenders.map(player => distance(point, player.anchor)))
-  return clamp((12 - nearest) / 12 * 0.65 + tactics.pressing / 100 * 0.35, 0, 1)
+function defensivePosition(player: PlayerTacticalProfile, ball: Vec2, tactics: TeamTactics): Vec2 {
+  const individualPress = (player.pressIntensity + tactics.pressing) / 200
+  const lineShift = (tactics.defensiveLine - 50) * .18
+  const compactness = .08 + player.marking / 260 + individualPress * .12
+  const base = { x: player.anchor.x - lineShift, y: 34 + (player.anchor.y - 34) * (.72 + tactics.width / 180) }
+  return {
+    x: clamp(base.x + (ball.x - base.x) * individualPress * .22, 1, 104),
+    y: clamp(base.y + (ball.y - base.y) * compactness, 2, 66)
+  }
 }
 
-function movementTarget(player: PlayerTacticalProfile, ball: Vec2, random: SeededRandom): Vec2 {
+function nearestPressure(point: Vec2, defenders: PlayerTacticalProfile[], tactics: TeamTactics): number {
+  const ranked = defenders.map(player => ({ player, distance: distance(point, defensivePosition(player, point, tactics)) })).sort((a, b) => a.distance - b.distance)
+  const nearest = ranked[0]
+  const cover = ranked[1]
+  return clamp(
+    (12 - nearest.distance) / 12 * .52 + (16 - cover.distance) / 16 * .12 +
+    tactics.pressing / 100 * .18 + nearest.player.pressIntensity / 100 * .12 + nearest.player.marking / 100 * .06,
+    0, 1
+  )
+}
+
+function movementTarget(player: PlayerTacticalProfile, ball: Vec2, tactics: TeamTactics, random: SeededRandom): Vec2 {
   const dutyAdvance = player.duty === '进攻' ? 9 : player.duty === '支援' ? 4 : 0
   const deltas: Record<PlayerTacticalProfile['runPattern'], Vec2> = {
     '保持位置': { x: 0, y: 0 }, '前插': { x: 12, y: 0 }, '回撤接应': { x: -7, y: (ball.y - player.anchor.y) * .25 },
@@ -28,7 +45,13 @@ function movementTarget(player: PlayerTacticalProfile, ball: Vec2, random: Seede
     '自由跑位': { x: 5, y: (random.next() - .5) * 13 }
   }
   const delta = deltas[player.runPattern]
-  return { x: clamp(player.anchor.x + delta.x + dutyAdvance + (random.next() - .5) * 4, 0, 104), y: clamp(player.anchor.y + delta.y + (random.next() - .5) * 4, 2, 66) }
+  const widthScale = .62 + tactics.width / 130
+  const depthAdvance = (tactics.depth - 50) * .12
+  const directAdvance = tactics.buildUp === '快速直接' ? 4 : tactics.buildUp === '混合推进' ? 1.5 : 0
+  return {
+    x: clamp(player.anchor.x + delta.x + dutyAdvance + depthAdvance + directAdvance + (random.next() - .5) * 4, 0, 104),
+    y: clamp(34 + (player.anchor.y + delta.y - 34) * widthScale + (random.next() - .5) * 4, 2, 66)
+  }
 }
 
 function chooseBallCarrier(players: PlayerTacticalProfile[], ball: Vec2): PlayerTacticalProfile {
@@ -52,14 +75,14 @@ function simulatePossession(scenario: TacticalScenario, iteration: number): Poss
   const positions: Record<string, Vec2[]> = Object.fromEntries(attackers.map(player => [player.playerId, [player.anchor]]))
 
   for (let actionIndex = 0; actionIndex < scenario.maxActions && retained && !shot; actionIndex++) {
-    const livePositions = new Map(attackers.map(player => [player.playerId, movementTarget(player, ball, random)]))
+    const livePositions = new Map(attackers.map(player => [player.playerId, movementTarget(player, ball, attackTactics, random)]))
     for (const [playerId, point] of livePositions) positions[playerId].push(point)
     const carrierPoint = livePositions.get(carrier.playerId) ?? ball
     const pressure = nearestPressure(carrierPoint, defenders, defenceTactics)
     const goalDistance = 105 - carrierPoint.x
     const shotWeight = goalDistance < 32 ? (carrier.shootTendency / 100) * (1.25 - goalDistance / 55) : .01
-    const carryWeight = (carrier.carryTendency / 100) * (1 - pressure * .55) * (.75 + attackTactics.transitionSpeed / 200)
-    const passWeight = .7 + carrier.passForward / 180 + (attackTactics.buildUp === '短传组织' ? .25 : 0)
+    const carryWeight = (carrier.carryTendency / 100) * (1 - pressure * .55) * (.75 + attackTactics.transitionSpeed / 200) * (attackTactics.buildUp === '混合推进' ? 1.12 : 1)
+    const passWeight = .7 + carrier.passForward / 180 + (attackTactics.buildUp === '短传组织' ? .25 : attackTactics.buildUp === '快速直接' ? .08 : .14)
     const actionType = random.pickWeighted([
       { item: 'shot' as const, weight: shotWeight }, { item: 'carry' as const, weight: carryWeight }, { item: 'pass' as const, weight: passWeight }
     ])
@@ -95,7 +118,7 @@ function simulatePossession(scenario: TacticalScenario, iteration: number): Poss
       const passDistance = distance(carrierPoint, target.point)
       const targetPressure = nearestPressure(target.point, defenders, defenceTactics)
       const forward = target.point.x - carrierPoint.x
-      const successProbability = clamp(sigmoid(2.65 + carrier.attributes.passing / 85 + carrier.attributes.decisions / 170 - passDistance / 17 - targetPressure * 2.25 - Math.max(0, forward) * carrier.passRisk / 12000), .12, .98)
+      const successProbability = clamp(sigmoid(2.3 + carrier.attributes.passing / 90 + carrier.attributes.vision / 220 + target.player.attributes.firstTouch / 240 + carrier.attributes.decisions / 190 - passDistance / 17 - targetPressure * 2.25 - Math.max(0, forward) * carrier.passRisk / 12000), .12, .98)
       const success = random.next() < successProbability
       actions.push({ index: actionIndex, kind: 'pass', playerId: carrier.playerId, targetPlayerId: target.player.playerId, start: carrierPoint, end: target.point, success, probability: successProbability, note: success ? `传给 ${target.player.name}` : '传球被拦截' })
       ball = target.point

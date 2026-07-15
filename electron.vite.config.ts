@@ -9,7 +9,12 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
-    build: { rollupOptions: { input: resolve(__dirname, 'electron/preload.ts') } }
+    build: {
+      rollupOptions: {
+        input: resolve(__dirname, 'electron/preload.ts'),
+        output: { format: 'cjs', entryFileNames: 'preload.cjs' }
+      }
+    }
   },
   renderer: {
     root: '.',

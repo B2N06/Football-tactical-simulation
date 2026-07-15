@@ -60,14 +60,17 @@ export class TacticalDatabase {
 
   summary(): DatabaseSummary {
     const rows = this.db.exec('SELECT event_count, frame_count, imported_at, bundle_json FROM matches')[0]?.values ?? []
-    let teams = 0, players = 0, events = 0, frames = 0
+    const teamIds = new Set<string>(), playerIds = new Set<string>()
+    let events = 0, frames = 0
     for (const row of rows) {
       const bundle = JSON.parse(String(row[3])) as CanonicalMatchBundle
-      teams += bundle.teams.length; players += bundle.players.length; events += Number(row[0]); frames += Number(row[1])
+      bundle.teams.forEach(team => teamIds.add(`${bundle.source.provider}:${team.id}`))
+      bundle.players.forEach(player => playerIds.add(`${bundle.source.provider}:${player.id}`))
+      events += Number(row[0]); frames += Number(row[1])
     }
     const scenarioRow = this.db.exec('SELECT COUNT(*) FROM scenarios')[0]?.values[0]
     const dates = rows.map(row => String(row[2])).filter(Boolean).sort()
-    return { matches: rows.length, teams, players, events, frames, scenarios: Number(scenarioRow?.[0] ?? 0), lastImportedAt: dates.at(-1) }
+    return { matches: rows.length, teams: teamIds.size, players: playerIds.size, events, frames, scenarios: Number(scenarioRow?.[0] ?? 0), lastImportedAt: dates.at(-1) }
   }
 
   listMatches(): StoredMatchSummary[] {

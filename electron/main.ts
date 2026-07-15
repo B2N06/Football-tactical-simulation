@@ -113,11 +113,13 @@ async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
     width: 1480, height: 920, minWidth: 1120, minHeight: 720, backgroundColor: '#071a15',
     title: 'Football Tactical Simulation', show: false,
-    webPreferences: { preload: join(__dirname, '../preload/preload.mjs'), contextIsolation: true, nodeIntegration: false, sandbox: true }
+    webPreferences: { preload: join(__dirname, '../preload/preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true }
   })
-  mainWindow.once('ready-to-show', () => {
-    if (smokeTest) setTimeout(() => app.quit(), 500)
-    else mainWindow?.show()
+  mainWindow.once('ready-to-show', async () => {
+    if (smokeTest) {
+      const rendered = await mainWindow?.webContents.executeJavaScript("document.getElementById('root')?.textContent?.includes('数据中心')")
+      app.exit(rendered ? 0 : 2)
+    } else mainWindow?.show()
   })
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) void shell.openExternal(url); return { action: 'deny' } })
   mainWindow.webContents.on('will-navigate', event => event.preventDefault())
