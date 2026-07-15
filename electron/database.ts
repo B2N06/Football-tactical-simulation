@@ -78,5 +78,14 @@ export class TacticalDatabase {
     return (result[0]?.values ?? []).map(row => ({ id: String(row[0]), competition: String(row[1]), season: String(row[2]), date: String(row[3]), homeTeam: String(row[4]), awayTeam: String(row[5]), eventCount: Number(row[6]), frameCount: Number(row[7]), source: String(row[8]) }))
   }
 
+  getMatchBundle(matchId: string): CanonicalMatchBundle {
+    const statement = this.db.prepare('SELECT bundle_json FROM matches WHERE id = ?')
+    try {
+      statement.bind([matchId])
+      if (!statement.step()) throw new Error('比赛不存在或已被删除')
+      return JSON.parse(String(statement.get()[0])) as CanonicalMatchBundle
+    } finally { statement.free() }
+  }
+
   backup(destination: string): void { writeFileSync(destination, Buffer.from(this.db.export())) }
 }

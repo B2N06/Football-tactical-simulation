@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoScenario } from '../engine/demo'
-import { compareScenarios, simulateScenario } from '../engine/simulation'
+import { compareScenarios, simulateScenario, validateScenario } from '../engine/simulation'
 
 describe('蒙特卡洛战术推演', () => {
   it('同一随机种子产生可复现结果', () => {
@@ -45,5 +45,21 @@ describe('蒙特卡洛战术推演', () => {
     const narrowResult = simulateScenario(narrow), wideResult = simulateScenario(wide)
     expect(wideResult.metrics.averageProgression).not.toBe(narrowResult.metrics.averageProgression)
     expect([wideResult.metrics.leftShare, wideResult.metrics.centreShare, wideResult.metrics.rightShare]).not.toEqual([narrowResult.metrics.leftShare, narrowResult.metrics.centreShare, narrowResult.metrics.rightShare])
+  })
+  it('客队持球时向左侧球门推进并正确计算跑位方向', () => {
+    const scenario = createDemoScenario(); scenario.iterations = 180; scenario.possession = 'away'; scenario.startingBall = { x: 87, y: 34 }
+    const result = simulateScenario(scenario)
+    const striker = scenario.away.find(player => player.playerId === 'away-9')!
+    const sampledX = result.playerHeatmaps[striker.playerId].map(point => point.x)
+    expect(sampledX.reduce((sum, value) => sum + value, 0) / sampledX.length).toBeLessThan(striker.anchor.x)
+    const shots = [...result.representativeSuccess, ...result.representativeFailure].filter(action => action.kind === 'shot')
+    expect(shots.every(action => action.end.x === 0)).toBe(true)
+    expect(result.metrics.averageProgression).toBeGreaterThan(0)
+  })
+  it('拒绝越界属性和过大的回合动作数', () => {
+    const scenario = createDemoScenario(); scenario.home[0].attributes.passing = 101
+    expect(() => validateScenario(scenario)).toThrow('0–100')
+    scenario.home[0].attributes.passing = 70; scenario.maxActions = 51
+    expect(() => validateScenario(scenario)).toThrow('1–50')
   })
 })

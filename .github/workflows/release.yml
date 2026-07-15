@@ -27,6 +27,6 @@ jobs:
             release/SHA256SUMS.txt
           generate_release_notes: true
           body: |
-            Windows 64 位首个公开版本。核心推演完全离线且不依赖 AI。
+            Windows 64 位发行版。核心推演完全离线且不依赖 AI。
 
             注意：本版本未使用商业代码签名证书，Windows SmartScreen 可能显示未知发布者。

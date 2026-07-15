@@ -9,6 +9,9 @@
 - 代表性回合轨迹、传球网络、进攻通道、射门率、xG、禁区进入和控球延续分析。
 - StatsBomb Open Data 在线导入、football-data.org v4 比赛元数据导入。
 - StatsBomb/标准 JSON、追踪 CSV、ZIP、PNG/JPG 热点参考图导入。
+- 从本地比赛库一键生成双方 11 人历史校准方案，按球员样本平滑传球、跑位、射门、带球和防守倾向。
+- 流式聚合最多 50,000 次蒙特卡洛回合，避免把全部中间轨迹长期保存在内存中。
+- 正确支持主队向右、客队向左的双向进攻坐标、禁区进入和推进距离。
 - 本地 SQLite 持久化、数据库备份、JSON/CSV/PDF 结果导出。
 - 预留 `AiAnalysisProvider`，但首版不接入 AI、不收集 AI Key。
 
@@ -18,7 +21,7 @@
 
 ### 安装版
 
-从 GitHub Releases 下载 `Football-Tactical-Simulation-Setup-0.1.0-x64.exe`，或下载 Portable 版本直接运行。首版没有商业代码签名证书，Windows SmartScreen 可能显示“未知发布者”。
+从 GitHub Releases 下载最新的 `Football-Tactical-Simulation-Setup-*-x64.exe`，或下载 Portable 版本直接运行。当前版本没有商业代码签名证书，Windows SmartScreen 可能显示“未知发布者”。
 
 ### 开发
 
@@ -55,6 +58,7 @@ Electron 渲染器启用上下文隔离并禁用 Node.js。API Token 通过系�
 
 - [架构与推演边界](docs/ARCHITECTURE.md)
 - [标准数据格式](docs/DATA_FORMAT.md)
+- [优化路线与实现可行性](docs/ROADMAP.md)
 - [贡献指南](CONTRIBUTING.md)
 
 ## 许可证

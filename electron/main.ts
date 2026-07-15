@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { TacticalDatabase } from './database'
 import { ImportService } from './importer'
 import { createDemoScenario } from '../src/engine/demo'
+import { validateScenario } from '../src/engine/simulation'
 import { fetchStatsBombOpenMatch } from '../src/providers/statsbomb'
 import { fetchFootballDataMatch, testFootballData } from '../src/providers/footballData'
 import type { CanonicalMatchBundle, SimulationComparison, TacticalScenario } from '../src/types'
@@ -42,11 +43,12 @@ async function writeStoredToken(token: string): Promise<void> {
 function registerIpc(): void {
   ipcMain.handle('db:summary', () => database.summary())
   ipcMain.handle('db:list-matches', () => database.listMatches())
+  ipcMain.handle('db:get-match', (_event, matchId: string) => database.getMatchBundle(String(matchId).slice(0, 200)))
   ipcMain.handle('db:seed-demo', () => {
     database.importBundle(demoBundle())
     return { ok: true, message: '合成示例已写入本地数据库。', summary: database.summary() }
   })
-  ipcMain.handle('scenario:save', (_event, scenario: TacticalScenario) => { database.saveScenario(scenario); return { ok: true } })
+  ipcMain.handle('scenario:save', (_event, scenario: TacticalScenario) => { validateScenario(scenario); database.saveScenario(scenario); return { ok: true } })
   ipcMain.handle('import:preview', async () => {
     const result = await dialog.showOpenDialog(mainWindow!, { title: '选择足球比赛数据', properties: ['openFile'], filters: [
       { name: '支持的数据文件', extensions: ['json', 'csv', 'zip', 'png', 'jpg', 'jpeg'] }, { name: '所有文件', extensions: ['*'] }

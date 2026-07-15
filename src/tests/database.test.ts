@@ -27,6 +27,8 @@ describe('SQLite 持久化', () => {
     const first = new TacticalDatabase(path); await first.init()
     first.importBundle(bundle()); first.importBundle(bundle())
     expect(first.summary()).toMatchObject({ matches: 1, teams: 2, players: 1, events: 1 })
+    expect(first.getMatchBundle('db-test').events[0].id).toBe('e1')
+    expect(() => first.getMatchBundle('missing')).toThrow('不存在')
     const reopened = new TacticalDatabase(path); await reopened.init()
     expect(reopened.listMatches()).toHaveLength(1)
     expect(reopened.summary().matches).toBe(1)

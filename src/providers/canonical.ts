@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { CanonicalMatchBundle, TrackingFrame } from '../types'
 import { normalizeCoordinate } from '../engine/coordinates'
 
-const vecSchema = z.object({ x: z.number().finite(), y: z.number().finite() })
+const vecSchema = z.object({ x: z.number().finite().min(0).max(105), y: z.number().finite().min(0).max(68) })
 const canonicalSchema = z.object({
   schemaVersion: z.literal(1), source: z.object({ provider: z.string(), sourceId: z.string(), importedAt: z.string(), attribution: z.string().optional() }),
   match: z.object({ id: z.string(), competition: z.string(), season: z.string(), date: z.string(), homeTeamId: z.string(), awayTeamId: z.string(), homeScore: z.number().optional(), awayScore: z.number().optional() }),
@@ -28,13 +28,31 @@ export function parseTrackingCsv(text: string, fileName: string): CanonicalMatch
   const fields = parsed.meta.fields ?? []
   const missing = required.filter(field => !fields.includes(field))
   if (missing.length) throw new Error(`CSV 缺少字段：${missing.join(', ')}`)
+  const isTeammate = (value: string) => ['1', 'true', 'yes', 'y'].includes(value.trim().toLowerCase())
+  const numberField = (value: string | undefined, label: string): number => {
+    const parsedValue = Number(value)
+    if (!Number.isFinite(parsedValue)) throw new Error(`CSV ${label} 字段必须为有限数字`)
+    return parsedValue
+  }
   const grouped = new Map<number, TrackingFrame>()
   for (const row of parsed.data) {
-    const second = Number(row.second), width = Number(row.pitch_width || 105), height = Number(row.pitch_height || 68)
-    if (!Number.isFinite(second)) throw new Error('CSV second 字段必须为数字')
+    if (!row.player_id?.trim()) throw new Error('CSV player_id 不能为空')
+    const second = numberField(row.second, 'second'), width = numberField(row.pitch_width || '105', 'pitch_width'), height = numberField(row.pitch_height || '68', 'pitch_height')
+    const x = numberField(row.x, 'x'), y = numberField(row.y, 'y')
+    if (second < 0) throw new Error('CSV second 不能为负数')
+    if (width <= 0 || height <= 0) throw new Error('CSV 球场宽高必须大于 0')
+    if (x < 0 || x > width || y < 0 || y > height) throw new Error(`CSV 坐标 (${x}, ${y}) 超出 ${width} × ${height} 的源球场范围`)
     const frame = grouped.get(second) ?? { second, possessionTeamId: row.possession_team_id, players: [], confidence: 'observed' as const }
-    frame.players.push({ playerId: row.player_id, teammate: ['1','true','yes'].includes(row.teammate.toLowerCase()), position: normalizeCoordinate({ x: Number(row.x), y: Number(row.y) }, width, height), speed: row.speed ? Number(row.speed) : undefined })
-    if (row.ball_x && row.ball_y) frame.ball = normalizeCoordinate({ x: Number(row.ball_x), y: Number(row.ball_y) }, width, height)
+    const speed = row.speed?.trim() ? numberField(row.speed, 'speed') : undefined
+    if (speed !== undefined && speed < 0) throw new Error('CSV speed 不能为负数')
+    frame.players.push({ playerId: row.player_id.trim(), teammate: isTeammate(row.teammate), position: normalizeCoordinate({ x, y }, width, height), speed })
+    const hasBallX = Boolean(row.ball_x?.trim()), hasBallY = Boolean(row.ball_y?.trim())
+    if (hasBallX !== hasBallY) throw new Error('CSV ball_x 与 ball_y 必须同时提供')
+    if (hasBallX) {
+      const ballX = numberField(row.ball_x, 'ball_x'), ballY = numberField(row.ball_y, 'ball_y')
+      if (ballX < 0 || ballX > width || ballY < 0 || ballY > height) throw new Error('CSV 皮球坐标超出源球场范围')
+      frame.ball = normalizeCoordinate({ x: ballX, y: ballY }, width, height)
+    }
     grouped.set(second, frame)
   }
   const matchId = `tracking-${fileName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`
@@ -43,7 +61,7 @@ export function parseTrackingCsv(text: string, fileName: string): CanonicalMatch
     schemaVersion: 1, source: { provider: 'Local tracking CSV', sourceId: fileName, importedAt: new Date().toISOString() },
     match: { id: matchId, competition: '本地追踪数据', season: '未知', date: '', homeTeamId: 'home', awayTeamId: 'away' },
     teams: [{ id: 'home', name: '主队', color: '#19c37d' }, { id: 'away', name: '客队', color: '#ff7262' }],
-    players: playerIds.map((id, index) => ({ id, name: id, teamId: parsed.data.find(row => row.player_id === id)?.teammate === 'true' ? 'home' : 'away', shirtNumber: index + 1, position: '未知' })),
+    players: playerIds.map((id, index) => ({ id, name: id, teamId: isTeammate(parsed.data.find(row => row.player_id?.trim() === id)?.teammate ?? '') ? 'home' : 'away', shirtNumber: index + 1, position: '未知' })),
     lineups: [], events: [], frames: [...grouped.values()].sort((a, b) => a.second - b.second)
   }
 }

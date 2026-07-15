@@ -19,9 +19,14 @@ export function statsBombEventsToBundle(events: JsonObject[], lineups: JsonObjec
   }))
   const playersFromLineups: Player[] = lineups.flatMap(team => (team.lineup ?? []).map((entry: JsonObject) => ({
     id: String(entry.player_id), name: entry.player_name, teamId: String(team.team_id), shirtNumber: Number(entry.jersey_number ?? 0),
-    position: entry.positions?.[0]?.position ?? '未知'
+    position: entry.positions?.[0]?.position?.name ?? entry.positions?.[0]?.position ?? '未知'
   })))
-  const players = uniqueBy([...playersFromLineups, ...playersFromEvents], item => item.id)
+  const players = uniqueBy([...playersFromEvents, ...playersFromLineups], item => item.id)
+  const canonicalLineups = lineups.flatMap(team => (team.lineup ?? []).map((entry: JsonObject) => ({
+    teamId: String(team.team_id), playerId: String(entry.player_id),
+    starter: Boolean(entry.positions?.some((position: JsonObject) => position.from === '00:00')),
+    position: entry.positions?.[0]?.position?.name ?? entry.positions?.[0]?.position ?? '未知'
+  })))
   const kindMap: Record<string, MatchEvent['kind'] | undefined> = {
     Pass: 'pass', Carry: 'carry', Shot: 'shot', Duel: 'duel', Pressure: 'pressure', Dispossessed: 'turnover', Interception: 'recovery', 'Ball Recovery': 'recovery'
   }
@@ -51,7 +56,7 @@ export function statsBombEventsToBundle(events: JsonObject[], lineups: JsonObjec
     source: { provider: 'StatsBomb Open Data', sourceId, importedAt: new Date().toISOString(), attribution: 'Data supplied by StatsBomb Open Data' },
     match: { id: matchId, competition: 'StatsBomb Open Data', season: '未知赛季', date: '', homeTeamId: teams[0]?.id ?? 'home', awayTeamId: teams[1]?.id ?? 'away' },
     teams: uniqueBy(teams, item => item.id), players,
-    lineups: players.map(player => ({ teamId: player.teamId, playerId: player.id, starter: true, position: player.position })),
+    lineups: canonicalLineups.length ? canonicalLineups : players.map(player => ({ teamId: player.teamId, playerId: player.id, starter: true, position: player.position })),
     events: canonicalEvents, frames: trackingFrames
   }
 }
