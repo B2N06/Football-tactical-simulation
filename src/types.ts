@@ -140,6 +140,7 @@ export interface PlayerTacticalProfile {
     vision: number
   }
   confidence: Confidence
+  historicalSampleSize?: number
 }
 
 export interface TeamTactics {
@@ -165,6 +166,13 @@ export interface TacticalScenario {
   seed: number
   iterations: number
   maxActions: number
+  calibration?: {
+    provider: string
+    sourceMatchId: string
+    eventCount: number
+    frameCount: number
+    lowSamplePlayers: number
+  }
 }
 
 export interface SimulationAction {
@@ -255,6 +263,7 @@ export interface AiAnalysisProvider {
 export interface DesktopApi {
   getDatabaseSummary(): Promise<DatabaseSummary>
   listMatches(): Promise<StoredMatchSummary[]>
+  getMatchBundle(matchId: string): Promise<CanonicalMatchBundle>
   previewImport(): Promise<ImportPreview | null>
   commitImport(token: string): Promise<{ ok: boolean; message: string; summary: DatabaseSummary }>
   seedDemo(): Promise<{ ok: boolean; message: string; summary: DatabaseSummary }>

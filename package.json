@@ -1,6 +1,6 @@
 {
   "name": "football-tactical-simulation",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Offline-first, player-level football tactical simulation desktop application.",
   "main": "out/main/main.js",
   "author": "B2N06",

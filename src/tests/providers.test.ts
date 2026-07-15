@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { statsBombEventsToBundle } from '../providers/statsbomb'
+import { parseTrackingCsv } from '../providers/canonical'
 import { DisabledAiProvider } from '../providers/ai'
 
 describe('数据适配器', () => {
@@ -17,5 +18,20 @@ describe('数据适配器', () => {
     const provider = new DisabledAiProvider()
     expect(provider.enabled).toBe(false)
     await expect(provider.analyse({} as never, {} as never)).rejects.toThrow('未启用')
+  })
+  it('读取追踪 CSV 时统一布尔值、零坐标并拒绝越界数据', () => {
+    const text = 'second,player_id,teammate,x,y,ball_x,ball_y,pitch_width,pitch_height\n0,p1,yes,0,0,0,0,100,50\n0,p2,no,100,50,0,0,100,50'
+    const bundle = parseTrackingCsv(text, 'tracking.csv')
+    expect(bundle.players.find(player => player.id === 'p1')?.teamId).toBe('home')
+    expect(bundle.frames[0].ball).toEqual({ x: 0, y: 0 })
+    expect(bundle.frames[0].players[1].position).toEqual({ x: 105, y: 68 })
+    expect(() => parseTrackingCsv('second,player_id,teammate,x,y\n0,p1,true,106,2', 'bad.csv')).toThrow('超出')
+  })
+  it('读取 StatsBomb 阵容中的位置名称而不是原始对象', () => {
+    const bundle = statsBombEventsToBundle([
+      { id: 'a', match_id: 7, type: { name: 'Pass' }, team: { id: 1, name: 'A' }, player: { id: 11, name: '甲' }, location: [10, 10], pass: { end_location: [20, 10] } },
+      { id: 'b', match_id: 7, type: { name: 'Pressure' }, team: { id: 2, name: 'B' }, player: { id: 21, name: '乙' }, location: [20, 10] }
+    ], [{ team_id: 1, team_name: 'A', lineup: [{ player_id: 11, player_name: '甲', positions: [{ position: { name: 'Left Back' } }] }] }])
+    expect(bundle.players.find(player => player.id === '11')?.position).toBe('Left Back')
   })
 })
