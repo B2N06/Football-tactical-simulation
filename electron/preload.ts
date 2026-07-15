@@ -5,6 +5,7 @@ const api: DesktopApi = {
   getDatabaseSummary: () => ipcRenderer.invoke('db:summary'),
   listMatches: () => ipcRenderer.invoke('db:list-matches'),
   getMatchBundle: matchId => ipcRenderer.invoke('db:get-match', matchId),
+  getRelatedMatchBundles: matchId => ipcRenderer.invoke('db:get-related-matches', matchId),
   previewImport: () => ipcRenderer.invoke('import:preview'),
   commitImport: token => ipcRenderer.invoke('import:commit', token),
   seedDemo: () => ipcRenderer.invoke('db:seed-demo'),

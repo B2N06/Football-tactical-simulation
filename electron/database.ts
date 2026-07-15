@@ -87,5 +87,15 @@ export class TacticalDatabase {
     } finally { statement.free() }
   }
 
+  getRelatedMatchBundles(matchId: string, limit = 20): CanonicalMatchBundle[] {
+    const primary = this.getMatchBundle(matchId)
+    const playerIds = new Set(primary.players.map(player => player.id))
+    const result = this.db.exec('SELECT bundle_json FROM matches ORDER BY imported_at DESC')
+    const related = (result[0]?.values ?? []).map(row => JSON.parse(String(row[0])) as CanonicalMatchBundle)
+      .filter(bundle => bundle.match.id !== primary.match.id && bundle.source.provider === primary.source.provider && bundle.players.some(player => playerIds.has(player.id)))
+      .slice(0, Math.max(0, Math.min(49, limit - 1)))
+    return [primary, ...related]
+  }
+
   backup(destination: string): void { writeFileSync(destination, Buffer.from(this.db.export())) }
 }

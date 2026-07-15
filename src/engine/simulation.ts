@@ -15,21 +15,51 @@ interface PossessionOutcome {
 
 const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x))
 
-function defensivePosition(player: PlayerTacticalProfile, ball: Vec2, tactics: TeamTactics, attackDirection: 1 | -1): Vec2 {
+function isGoalkeeper(player: PlayerTacticalProfile): boolean {
+  return /门将|goalkeeper|keeper|(^|\s)gk($|\s)/i.test(`${player.position} ${player.role}`)
+}
+
+function moveTowards(current: Vec2, target: Vec2, maximumDistance: number): Vec2 {
+  const separation = distance(current, target)
+  if (!separation || separation <= maximumDistance) return target
+  const ratio = maximumDistance / separation
+  return { x: current.x + (target.x - current.x) * ratio, y: current.y + (target.y - current.y) * ratio }
+}
+
+function defensiveTarget(player: PlayerTacticalProfile, ball: Vec2, tactics: TeamTactics, attackDirection: 1 | -1, attackers: PlayerTacticalProfile[], attackerPositions: Map<string, Vec2>): Vec2 {
   const individualPress = (player.pressIntensity + tactics.pressing) / 200
   const lineShift = (tactics.defensiveLine - 50) * .18
   const compactness = .08 + player.marking / 260 + individualPress * .12
   const base = { x: player.anchor.x - attackDirection * lineShift, y: 34 + (player.anchor.y - 34) * (.72 + tactics.width / 180) }
+  if (isGoalkeeper(player)) return {
+    x: clamp(base.x + (ball.x - base.x) * .035, player.side === 'home' ? 1 : 92, player.side === 'home' ? 13 : 104),
+    y: clamp(base.y + (ball.y - base.y) * .08, 24, 44)
+  }
+  let mark: Vec2 | undefined, markDistance = Number.POSITIVE_INFINITY
+  for (const attacker of attackers) {
+    const point = attackerPositions.get(attacker.playerId)
+    if (!point) continue
+    const candidateDistance = distance(player.anchor, point)
+    if (candidateDistance < markDistance) { mark = point; markDistance = candidateDistance }
+  }
+  const markingWeight = player.marking / 100 * .34
+  const pressingWeight = individualPress * .25
   return {
-    x: clamp(base.x + (ball.x - base.x) * individualPress * .22, 1, 104),
-    y: clamp(base.y + (ball.y - base.y) * compactness, 2, 66)
+    x: clamp(base.x + (ball.x - base.x) * pressingWeight + ((mark?.x ?? base.x) - base.x) * markingWeight, 1, 104),
+    y: clamp(base.y + (ball.y - base.y) * compactness + ((mark?.y ?? base.y) - base.y) * markingWeight, 2, 66)
   }
 }
 
-function nearestPressure(point: Vec2, defenders: PlayerTacticalProfile[], tactics: TeamTactics, attackDirection: 1 | -1): number {
-  const ranked = defenders.map(player => ({ player, distance: distance(point, defensivePosition(player, point, tactics, attackDirection)) })).sort((a, b) => a.distance - b.distance)
-  const nearest = ranked[0]
-  const cover = ranked[1] ?? nearest
+function nearestPressure(point: Vec2, defenders: PlayerTacticalProfile[], positions: Map<string, Vec2>, tactics: TeamTactics): number {
+  let nearest: { player: PlayerTacticalProfile; distance: number } | undefined
+  let cover: { player: PlayerTacticalProfile; distance: number } | undefined
+  for (const player of defenders) {
+    const candidate = { player, distance: distance(point, positions.get(player.playerId) ?? player.anchor) }
+    if (!nearest || candidate.distance < nearest.distance) { cover = nearest; nearest = candidate }
+    else if (!cover || candidate.distance < cover.distance) cover = candidate
+  }
+  if (!nearest) return 0
+  cover ??= nearest
   return clamp(
     (12 - nearest.distance) / 12 * .52 + (16 - cover.distance) / 16 * .12 +
     tactics.pressing / 100 * .18 + nearest.player.pressIntensity / 100 * .12 + nearest.player.marking / 100 * .06,
@@ -55,7 +85,12 @@ function movementTarget(player: PlayerTacticalProfile, ball: Vec2, tactics: Team
 }
 
 function chooseBallCarrier(players: PlayerTacticalProfile[], ball: Vec2): PlayerTacticalProfile {
-  return [...players].sort((a, b) => distance(a.anchor, ball) - distance(b.anchor, ball))[0]
+  let closest = players[0], closestDistance = distance(players[0].anchor, ball)
+  for (let index = 1; index < players.length; index++) {
+    const candidateDistance = distance(players[index].anchor, ball)
+    if (candidateDistance < closestDistance) { closest = players[index]; closestDistance = candidateDistance }
+  }
+  return closest
 }
 
 function simulatePossession(scenario: TacticalScenario, iteration: number, collectPositions: boolean): PossessionOutcome {
@@ -73,13 +108,30 @@ function simulatePossession(scenario: TacticalScenario, iteration: number, colle
   let boxEntries = 0
   const lanes: [number, number, number] = [0, 0, 0]
   const actions: SimulationAction[] = []
-  const positions: Record<string, Vec2[]> = collectPositions ? Object.fromEntries(attackers.map(player => [player.playerId, [player.anchor]])) : {}
+  const allPlayers = [...attackers, ...defenders]
+  const positions: Record<string, Vec2[]> = collectPositions ? Object.fromEntries(allPlayers.map(player => [player.playerId, [player.anchor]])) : {}
+  const attackerPositions = new Map(attackers.map(player => [player.playerId, { ...player.anchor }]))
+  const defenderPositions = new Map(defenders.map(player => [player.playerId, { ...player.anchor }]))
+  attackerPositions.set(carrier.playerId, { ...ball })
 
   for (let actionIndex = 0; actionIndex < scenario.maxActions && retained && !shot; actionIndex++) {
-    const livePositions = new Map(attackers.map(player => [player.playerId, movementTarget(player, ball, attackTactics, random, attackDirection)]))
-    if (collectPositions) for (const [playerId, point] of livePositions) positions[playerId].push(point)
-    const carrierPoint = livePositions.get(carrier.playerId) ?? ball
-    const pressure = nearestPressure(carrierPoint, defenders, defenceTactics, attackDirection)
+    for (const player of attackers) {
+      if (player.playerId === carrier.playerId) { attackerPositions.set(player.playerId, { ...ball }); continue }
+      const current = attackerPositions.get(player.playerId) ?? player.anchor
+      const target = movementTarget(player, ball, attackTactics, random, attackDirection)
+      attackerPositions.set(player.playerId, moveTowards(current, target, 2.6 + player.attributes.pace / 42 + player.attributes.stamina / 100))
+    }
+    for (const player of defenders) {
+      const current = defenderPositions.get(player.playerId) ?? player.anchor
+      const target = defensiveTarget(player, ball, defenceTactics, attackDirection, attackers, attackerPositions)
+      defenderPositions.set(player.playerId, moveTowards(current, target, 2.4 + player.attributes.pace / 45 + player.attributes.stamina / 110))
+    }
+    if (collectPositions) {
+      for (const [playerId, point] of attackerPositions) positions[playerId].push(point)
+      for (const [playerId, point] of defenderPositions) positions[playerId].push(point)
+    }
+    const carrierPoint = attackerPositions.get(carrier.playerId) ?? ball
+    const pressure = nearestPressure(carrierPoint, defenders, defenderPositions, defenceTactics)
     const goalDistance = attackDirection === 1 ? 105 - carrierPoint.x : carrierPoint.x
     const shotWeight = goalDistance < 32 ? (carrier.shootTendency / 100) * (1.25 - goalDistance / 55) : .01
     const carryWeight = (carrier.carryTendency / 100) * (1 - pressure * .55) * (.75 + attackTactics.transitionSpeed / 200) * (attackTactics.buildUp === '混合推进' ? 1.12 : 1)
@@ -107,7 +159,7 @@ function simulatePossession(scenario: TacticalScenario, iteration: number, colle
       retained = success
     } else {
       const candidates = attackers.filter(player => player.playerId !== carrier.playerId).map(player => {
-        const point = livePositions.get(player.playerId)!
+        const point = attackerPositions.get(player.playerId)!
         const forward = (point.x - carrierPoint.x) * attackDirection
         const passDistance = distance(carrierPoint, point)
         const focusBoost = attackTactics.focus === '均衡' ? 1 : attackTactics.focus === '左路' && point.y < 23 ? 1.45 : attackTactics.focus === '右路' && point.y > 45 ? 1.45 : attackTactics.focus === '中路' && point.y >= 23 && point.y <= 45 ? 1.45 : .8
@@ -117,14 +169,14 @@ function simulatePossession(scenario: TacticalScenario, iteration: number, colle
       })
       const target = random.pickWeighted(candidates)
       const passDistance = distance(carrierPoint, target.point)
-      const targetPressure = nearestPressure(target.point, defenders, defenceTactics, attackDirection)
+      const targetPressure = nearestPressure(target.point, defenders, defenderPositions, defenceTactics)
       const forward = (target.point.x - carrierPoint.x) * attackDirection
       const successProbability = clamp(sigmoid(2.3 + carrier.attributes.passing / 90 + carrier.attributes.vision / 220 + target.player.attributes.firstTouch / 240 + carrier.attributes.decisions / 190 - passDistance / 17 - targetPressure * 2.25 - Math.max(0, forward) * carrier.passRisk / 12000), .12, .98)
       const success = random.next() < successProbability
       actions.push({ index: actionIndex, kind: 'pass', playerId: carrier.playerId, targetPlayerId: target.player.playerId, start: carrierPoint, end: target.point, success, probability: successProbability, note: success ? `传给 ${target.player.name}` : '传球被拦截' })
       ball = target.point
       retained = success
-      if (success) carrier = target.player
+      if (success) { carrier = target.player; attackerPositions.set(carrier.playerId, { ...ball }) }
     }
 
     if ((attackDirection === 1 ? ball.x >= 88 : ball.x <= 17) && ball.y >= 14 && ball.y <= 54) boxEntries++
@@ -165,7 +217,7 @@ export function validateScenario(scenario: TacticalScenario): void {
   }
 }
 
-export function simulateScenario(scenario: TacticalScenario): SimulationResult {
+export function simulateScenario(scenario: TacticalScenario, onProgress?: (completed: number, total: number) => void): SimulationResult {
   validateScenario(scenario)
   let shotCount = 0, retainedCount = 0, xgTotal = 0, boxEntryTotal = 0, progressionTotal = 0
   let representativeSuccess: PossessionOutcome | undefined, representativeFailure: PossessionOutcome | undefined
@@ -174,6 +226,7 @@ export function simulateScenario(scenario: TacticalScenario): SimulationResult {
   const playerHeatmaps: Record<string, Vec2[]> = {}
   const edges = new Map<string, { from: string; to: string; count: number; success: number }>()
   const sampleStride = Math.max(1, Math.floor(scenario.iterations / 120))
+  const progressStride = Math.max(1, Math.floor(scenario.iterations / 100))
   for (let index = 0; index < scenario.iterations; index++) {
     const collectPositions = index % sampleStride === 0
     const outcome = simulatePossession(scenario, index, collectPositions)
@@ -192,6 +245,7 @@ export function simulateScenario(scenario: TacticalScenario): SimulationResult {
       const edge = edges.get(key) ?? { from: action.playerId, to: action.targetPlayerId, count: 0, success: 0 }
       edge.count++; if (action.success) edge.success++; edges.set(key, edge)
     }
+    if (onProgress && ((index + 1) % progressStride === 0 || index + 1 === scenario.iterations)) onProgress(index + 1, scenario.iterations)
   }
   const totalLaneActions = laneTotals.reduce((sum, value) => sum + value, 0) || 1
   const metrics: SimulationMetrics = {
@@ -207,9 +261,9 @@ export function simulateScenario(scenario: TacticalScenario): SimulationResult {
   }
   const successful = representativeSuccess ?? firstOutcome!
   const failure = representativeFailure ?? lastOutcome!
-  const qualityNotes = ['结果来自概率模型，不是对真实比赛结果的预测。', '无逐帧追踪数据时，无球跑位由职责模板推断。']
+  const qualityNotes = ['结果来自概率模型，不是对真实比赛结果的预测。', '双方球员位置按连续移动、压迫与盯人职责动态更新；无逐帧追踪数据时仍属于模型推断。']
   if (scenario.calibration) {
-    qualityNotes.push(`历史校准：${scenario.calibration.provider} · ${scenario.calibration.eventCount} 个事件 · ${scenario.calibration.frameCount} 个空间帧。`)
+    qualityNotes.push(`历史校准：${scenario.calibration.provider} · ${scenario.calibration.matchCount ?? 1} 场比赛 · ${scenario.calibration.eventCount} 个事件 · ${scenario.calibration.frameCount} 个空间帧。`)
     if (scenario.calibration.lowSamplePlayers) qualityNotes.push(`${scenario.calibration.lowSamplePlayers} 名球员样本较少，已使用位置先验平滑并标记低置信度。`)
   } else qualityNotes.push('当前方案未绑定历史比赛；球员属性为模型估计。')
   return {
@@ -221,9 +275,11 @@ export function simulateScenario(scenario: TacticalScenario): SimulationResult {
   }
 }
 
-export function compareScenarios(baseline: TacticalScenario, modified: TacticalScenario) {
-  const baselineResult = simulateScenario(baseline)
-  const modifiedResult = simulateScenario(modified)
+export function compareScenarios(baseline: TacticalScenario, modified: TacticalScenario, onProgress?: (progress: number, phase: 'baseline' | 'modified') => void) {
+  if (baseline.iterations !== modified.iterations) throw new Error('基准与修改方案必须使用相同推演次数')
+  if (baseline.seed !== modified.seed) throw new Error('基准与修改方案必须使用相同随机种子')
+  const baselineResult = simulateScenario(baseline, (completed, total) => onProgress?.(completed / total * .5, 'baseline'))
+  const modifiedResult = simulateScenario(modified, (completed, total) => onProgress?.(.5 + completed / total * .5, 'modified'))
   return {
     baseline: baselineResult, modified: modifiedResult,
     deltas: {

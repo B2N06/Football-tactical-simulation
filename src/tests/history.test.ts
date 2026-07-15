@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoScenario } from '../engine/demo'
-import { createScenarioFromBundle } from '../engine/history'
+import { createScenarioFromBundle, createScenarioFromBundles } from '../engine/history'
 import type { CanonicalMatchBundle } from '../types'
 
 function historicalBundle(): CanonicalMatchBundle {
@@ -47,5 +47,18 @@ describe('历史比赛校准', () => {
     expect(scenario.away).toHaveLength(11)
     expect([...scenario.home, ...scenario.away].some(player => player.name.startsWith('待配置球员'))).toBe(true)
     expect(scenario.calibration!.lowSamplePlayers).toBeGreaterThan(0)
+  })
+
+  it('汇总同一数据源的多场球员样本并排除其他提供商', () => {
+    const primary = historicalBundle()
+    const related = structuredClone(primary)
+    related.match.id = 'history-match-2'; related.source.sourceId = 'history-match-2'
+    related.events = related.events.map((event, index) => ({ ...event, id: `second-${index}`, matchId: 'history-match-2' }))
+    const unrelated = structuredClone(related)
+    unrelated.source.provider = 'another-provider'
+    const scenario = createScenarioFromBundles([primary, related, unrelated])
+    const player = scenario.home.find(item => item.playerId === 'home-10')!
+    expect(scenario.calibration).toMatchObject({ matchCount: 2, eventCount: 80, frameCount: 12 })
+    expect(player.historicalSampleSize).toBe(92)
   })
 })

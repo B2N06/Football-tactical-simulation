@@ -115,17 +115,23 @@ function stableSeed(value: string): number {
   return Math.abs(hash | 0) || 1
 }
 
-export function createScenarioFromBundle(bundle: CanonicalMatchBundle): TacticalScenario {
+export function createScenarioFromBundles(bundles: CanonicalMatchBundle[]): TacticalScenario {
+  const bundle = bundles[0]
+  if (!bundle) throw new Error('至少需要一场比赛才能创建战术方案')
   const homeTeam = bundle.teams.find(team => team.id === bundle.match.homeTeamId)
   const awayTeam = bundle.teams.find(team => team.id === bundle.match.awayTeamId)
   if (!homeTeam || !awayTeam) throw new Error('比赛数据缺少主队或客队信息，无法创建战术方案')
   const eventMap = new Map<string, MatchEvent[]>()
-  for (const event of bundle.events) if (event.playerId) {
+  const primaryPlayerIds = new Set(bundle.players.map(player => player.id))
+  const relatedBundles = [...new Map(bundles.filter(candidate => candidate.source.provider === bundle.source.provider).map(candidate => [candidate.match.id, candidate])).values()]
+  const pooledEvents = relatedBundles.flatMap(candidate => candidate.events).filter(event => event.playerId && primaryPlayerIds.has(event.playerId))
+  const pooledFrames = relatedBundles.flatMap(candidate => candidate.frames)
+  for (const event of pooledEvents) if (event.playerId) {
     const list = eventMap.get(event.playerId) ?? []
     list.push(event); eventMap.set(event.playerId, list)
   }
   const positionMap = new Map<string, Vec2[]>()
-  for (const frame of bundle.frames) for (const player of frame.players) if (player.playerId) {
+  for (const frame of pooledFrames) for (const player of frame.players) if (player.playerId && primaryPlayerIds.has(player.playerId)) {
     const list = positionMap.get(player.playerId) ?? []
     list.push(player.position); positionMap.set(player.playerId, list)
   }
@@ -139,6 +145,10 @@ export function createScenarioFromBundle(bundle: CanonicalMatchBundle): Tactical
     homeTactics: { width: 60, depth: 55, defensiveLine: 52, pressing: 58, transitionSpeed: 55, buildUp: '混合推进', focus: '均衡' },
     awayTactics: { width: 58, depth: 52, defensiveLine: 55, pressing: 60, transitionSpeed: 56, buildUp: '混合推进', focus: '均衡' },
     seed: stableSeed(`${bundle.source.provider}:${bundle.match.id}`), iterations: 1200, maxActions: 10,
-    calibration: { provider: bundle.source.provider, sourceMatchId: bundle.match.id, eventCount: bundle.events.length, frameCount: bundle.frames.length, lowSamplePlayers }
+    calibration: { provider: bundle.source.provider, sourceMatchId: bundle.match.id, matchCount: relatedBundles.length, eventCount: pooledEvents.length, frameCount: pooledFrames.length, lowSamplePlayers }
   }
+}
+
+export function createScenarioFromBundle(bundle: CanonicalMatchBundle): TacticalScenario {
+  return createScenarioFromBundles([bundle])
 }

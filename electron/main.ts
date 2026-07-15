@@ -44,6 +44,7 @@ function registerIpc(): void {
   ipcMain.handle('db:summary', () => database.summary())
   ipcMain.handle('db:list-matches', () => database.listMatches())
   ipcMain.handle('db:get-match', (_event, matchId: string) => database.getMatchBundle(String(matchId).slice(0, 200)))
+  ipcMain.handle('db:get-related-matches', (_event, matchId: string) => database.getRelatedMatchBundles(String(matchId).slice(0, 200)))
   ipcMain.handle('db:seed-demo', () => {
     database.importBundle(demoBundle())
     return { ok: true, message: '合成示例已写入本地数据库。', summary: database.summary() }

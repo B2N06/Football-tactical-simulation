@@ -169,6 +169,7 @@ export interface TacticalScenario {
   calibration?: {
     provider: string
     sourceMatchId: string
+    matchCount: number
     eventCount: number
     frameCount: number
     lowSamplePlayers: number
@@ -264,6 +265,7 @@ export interface DesktopApi {
   getDatabaseSummary(): Promise<DatabaseSummary>
   listMatches(): Promise<StoredMatchSummary[]>
   getMatchBundle(matchId: string): Promise<CanonicalMatchBundle>
+  getRelatedMatchBundles(matchId: string): Promise<CanonicalMatchBundle[]>
   previewImport(): Promise<ImportPreview | null>
   commitImport(token: string): Promise<{ ok: boolean; message: string; summary: DatabaseSummary }>
   seedDemo(): Promise<{ ok: boolean; message: string; summary: DatabaseSummary }>

@@ -34,6 +34,16 @@ describe('SQLite 持久化', () => {
     expect(reopened.summary().matches).toBe(1)
   })
 
+  it('按提供商和重叠球员返回相关历史比赛', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'fts-db-')); tempPaths.push(directory)
+    const database = new TacticalDatabase(join(directory, 'test.sqlite')); await database.init()
+    database.importBundle(bundle('primary'))
+    const related = bundle('related'); related.players[0].name = '同一球员'; database.importBundle(related)
+    const unrelated = bundle('unrelated'); unrelated.source.provider = 'other'; database.importBundle(unrelated)
+    const bundles = database.getRelatedMatchBundles('primary')
+    expect(bundles.map(item => item.match.id)).toEqual(['primary', 'related'])
+  })
+
   it('序列化失败时回滚整个导入', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'fts-db-')); tempPaths.push(directory)
     const database = new TacticalDatabase(join(directory, 'test.sqlite')); await database.init()
