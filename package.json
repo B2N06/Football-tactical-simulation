@@ -1,0 +1,67 @@
+{
+  "name": "football-tactical-simulation",
+  "version": "0.1.0",
+  "description": "Offline-first, player-level football tactical simulation desktop application.",
+  "main": "out/main/main.js",
+  "author": "B2N06",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "npm run typecheck && npm run test && electron-vite build",
+    "pack:win": "npm run build && electron-builder --win nsis portable",
+    "preview": "electron-vite preview"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "papaparse": "^5.5.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "sql.js": "^1.13.0",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.32",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@types/sql.js": "^1.4.9",
+    "@vitejs/plugin-react": "^4.5.2",
+    "electron": "^36.5.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^3.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "io.github.b2n06.footballtacticalsimulation",
+    "productName": "Football Tactical Simulation",
+    "electronDist": "node_modules/electron/dist",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": ["nsis", "portable"],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "artifactName": "Football-Tactical-Simulation-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "Football-Tactical-Simulation-Portable-${version}-${arch}.${ext}"
+    }
+  }
+}

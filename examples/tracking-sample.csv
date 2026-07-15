@@ -1,0 +1,7 @@
+second,player_id,teammate,x,y,speed,ball_x,ball_y,pitch_width,pitch_height,possession_team_id
+0.0,home-6,true,36,34,0.0,36,34,105,68,home
+0.0,home-8,true,49,44,0.0,36,34,105,68,home
+0.0,away-6,false,70,34,0.0,36,34,105,68,home
+0.5,home-6,true,37,34,2.0,37,34,105,68,home
+0.5,home-8,true,50,43,2.8,37,34,105,68,home
+0.5,away-6,false,69,34,2.0,37,34,105,68,home
