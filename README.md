@@ -45,13 +45,20 @@ pnpm pack:win
 
 构建结果位于 `release/`。
 
+### 可导入示例
+
+- `examples/demo-match-canonical.json`：完整标准 JSON，包含双方 22 人、首发阵容、30 个比赛事件和 4 个带球员 ID 的空间帧。
+- `examples/tracking-sample.csv`：最小追踪 CSV，用于测试坐标、速度和球权字段。
+
+启动桌面程序后，在“数据中心”选择“导入本地数据”，选中示例文件并确认导入，再在“本地比赛库”中点击“生成校准方案”。
+
 ## 数据源
 
 - [StatsBomb Open Data](https://github.com/statsbomb/open-data)：事件、阵容和部分比赛的 360 空间快照。发布相关研究或分析时请保留来源声明和 StatsBomb 标识。
 - [football-data.org v4](https://www.football-data.org/documentation/quickstart)：赛事、球队、比分和订阅允许的阵容元数据。
 - [Sportmonks API v3](https://docs.sportmonks.com/v3)：只预留适配器边界，首版未连接。
 
-项目不附带大体积第三方比赛数据。`examples/` 仅含合成追踪样例。
+项目不附带大体积第三方比赛数据。`examples/` 仅含合成比赛与追踪样例。
 
 ## 安全与隐私
 
