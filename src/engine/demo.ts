@@ -16,15 +16,16 @@ const awayFormation: Array<[string, string, Vec2]> = [
 
 function makePlayer(side: TeamSide, entry: [string, string, Vec2], index: number): PlayerTacticalProfile {
   const [number, position, anchor] = entry
+  const goalkeeper = position === '门将'
   const attacker = ['中锋', '边锋', '前腰'].some(label => position.includes(label))
   const defender = position.includes('后卫') || position === '后腰'
-  return {
+  const profile: PlayerTacticalProfile = {
     playerId: `${side}-${number}`,
     name: `${side === 'home' ? '海港' : '城南'} ${position}`,
     shirtNumber: Number(number), side, position,
     role: position,
-    duty: attacker ? '进攻' : defender ? '防守' : '支援',
-    anchor, runPattern: attacker ? (position.includes('边锋') ? '内切' : '前插') : defender ? '保持位置' : '自由跑位',
+    duty: goalkeeper || defender ? '防守' : attacker ? '进攻' : '支援',
+    anchor, runPattern: goalkeeper || defender ? '保持位置' : attacker ? (position.includes('边锋') ? '内切' : '前插') : '自由跑位',
     passRisk: 46 + (index % 4) * 5, passForward: 55 + (index % 3) * 7, passDirectness: 42 + (index % 5) * 4,
     shootTendency: attacker ? 67 : 22, carryTendency: position.includes('边锋') ? 73 : 45,
     pressIntensity: defender ? 64 : 58, marking: defender ? 72 : 50,
@@ -34,6 +35,8 @@ function makePlayer(side: TeamSide, entry: [string, string, Vec2], index: number
       decisions: 68 + (index % 3) * 3, vision: position.includes('中') ? 75 : 65
     }, confidence: 'modelled-high'
   }
+  if (position === '门将') profile.goalkeeping = { shotStopping: 74, handling: 72, aerialReach: 70, oneOnOnes: 73, rushingOut: 58, distribution: 71 }
+  return profile
 }
 
 export function createDemoScenario(): TacticalScenario {

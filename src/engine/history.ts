@@ -84,17 +84,18 @@ function profileFromHistory(
   const defensiveShare = smoothedRatio(defensiveActions.length, Math.max(1, events.length), .12)
   const sampleSize = events.length + observedPositions.length
   const base = ['gk', 'cb', 'rb', 'lb', 'dm'].includes(assigned.group) ? 62 : 67
+  const goalkeeper = assigned.group === 'gk'
   const attacker = ['rw', 'lw', 'st', 'am'].includes(assigned.group)
   const defender = ['cb', 'rb', 'lb', 'dm'].includes(assigned.group)
   const anchor = observedPositions.length >= 5 ? {
     x: clamp(mean(observedPositions.map(point => point.x), assigned.anchor.x), 1, 104),
     y: clamp(mean(observedPositions.map(point => point.y), assigned.anchor.y), 2, 66)
   } : assigned.anchor
-  return {
+  const profile: PlayerTacticalProfile = {
     playerId: assigned.player.id, name: assigned.player.name, shirtNumber: assigned.player.shirtNumber || Number(assigned.player.id.replace(/\D/g, '').slice(-2)) || 0,
     side, position: assigned.player.position === '待配置位置' ? groupLabels[assigned.group] : assigned.player.position,
-    role: groupLabels[assigned.group], duty: attacker ? '进攻' : defender ? '防守' : '支援', anchor,
-    runPattern: assigned.group === 'rw' || assigned.group === 'lw' ? '内切' : attacker ? '前插' : defender ? '保持位置' : '自由跑位',
+    role: groupLabels[assigned.group], duty: goalkeeper || defender ? '防守' : attacker ? '进攻' : '支援', anchor,
+    runPattern: goalkeeper || defender ? '保持位置' : assigned.group === 'rw' || assigned.group === 'lw' ? '内切' : attacker ? '前插' : '自由跑位',
     passRisk: rounded(28 + (1 - passSuccess) * 42 + forwardShare * 16), passForward: rounded(forwardShare * 100),
     passDirectness: rounded(passDistance / 35 * 100), shootTendency: rounded(shotShare * 260), carryTendency: rounded(carryShare * 230),
     pressIntensity: rounded(42 + defensiveShare * 180), marking: defender ? 70 : rounded(42 + defensiveShare * 90),
@@ -107,6 +108,11 @@ function profileFromHistory(
     confidence: observedPositions.length >= 5 ? 'observed' : events.length >= 25 ? 'modelled-high' : 'modelled-low',
     historicalSampleSize: sampleSize
   }
+  if (assigned.group === 'gk') profile.goalkeeping = {
+    shotStopping: rounded(62 + passSuccess * 12), handling: rounded(60 + passSuccess * 14), aerialReach: 68,
+    oneOnOnes: rounded(62 + defensiveShare * 35), rushingOut: rounded(42 + defensiveShare * 85), distribution: rounded(45 + passSuccess * 38 + passDistance / 5)
+  }
+  return profile
 }
 
 function stableSeed(value: string): number {

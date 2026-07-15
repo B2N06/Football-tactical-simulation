@@ -39,6 +39,14 @@ describe('蒙特卡洛战术推演', () => {
     expect(aggressiveResult.metrics.retentionRate).toBeLessThan(passiveResult.metrics.retentionRate)
     expect(aggressiveResult.metrics.averageProgression).not.toBe(passiveResult.metrics.averageProgression)
   })
+  it('门将扑救和一对一能力会降低对方机会质量', () => {
+    const weakGoalkeeper = createDemoScenario(); weakGoalkeeper.iterations = 420
+    const strongGoalkeeper = structuredClone(weakGoalkeeper)
+    weakGoalkeeper.away[0].goalkeeping = { shotStopping: 0, handling: 50, aerialReach: 50, oneOnOnes: 0, rushingOut: 50, distribution: 50 }
+    strongGoalkeeper.away[0].goalkeeping = { shotStopping: 100, handling: 50, aerialReach: 50, oneOnOnes: 100, rushingOut: 50, distribution: 50 }
+    const weakResult = simulateScenario(weakGoalkeeper), strongResult = simulateScenario(strongGoalkeeper)
+    expect(strongResult.metrics.averageXg).toBeLessThan(weakResult.metrics.averageXg)
+  })
   it('阵型宽度、纵深与组织方式会改变跑位和通道分布', () => {
     const narrow = createDemoScenario(); narrow.iterations = 240
     narrow.homeTactics.width = 10; narrow.homeTactics.depth = 20; narrow.homeTactics.buildUp = '短传组织'

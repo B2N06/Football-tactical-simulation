@@ -139,6 +139,14 @@ export interface PlayerTacticalProfile {
     decisions: number
     vision: number
   }
+  goalkeeping?: {
+    shotStopping: number
+    handling: number
+    aerialReach: number
+    oneOnOnes: number
+    rushingOut: number
+    distribution: number
+  }
   confidence: Confidence
   historicalSampleSize?: number
 }

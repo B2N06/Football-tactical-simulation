@@ -1,6 +1,6 @@
 {
   "name": "football-tactical-simulation",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Offline-first, player-level football tactical simulation desktop application.",
   "main": "out/main/main.js",
   "author": "B2N06",
@@ -23,6 +23,7 @@
     "zod": "^3.25.67"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^22.15.32",
     "@types/papaparse": "^5.3.16",
     "@types/react": "^19.1.8",
@@ -32,6 +33,7 @@
     "electron": "^36.5.0",
     "electron-builder": "^26.0.12",
     "electron-vite": "^3.1.0",
+    "jsdom": "^29.1.1",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vitest": "^3.2.4"
@@ -50,7 +52,10 @@
       "package.json"
     ],
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "signAndEditExecutable": false
     },
     "nsis": {

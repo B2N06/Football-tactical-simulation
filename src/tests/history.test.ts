@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoScenario } from '../engine/demo'
 import { createScenarioFromBundle, createScenarioFromBundles } from '../engine/history'
+import { validateScenario } from '../engine/simulation'
 import type { CanonicalMatchBundle } from '../types'
 
 function historicalBundle(): CanonicalMatchBundle {
@@ -36,6 +37,7 @@ describe('历史比赛校准', () => {
     expect(observed.attributes.passing).toBeGreaterThan(75)
     expect(observed.anchor.x).toBeGreaterThan(54)
     expect(scenario.away.every(player => player.anchor.x > 25)).toBe(true)
+    expect(() => validateScenario(scenario)).not.toThrow()
   })
 
   it('无完整阵容时使用明确的低置信度占位球员补足方案', () => {

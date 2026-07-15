@@ -1,5 +1,6 @@
 import type { PlayerTacticalProfile, SimulationAction, SimulationMetrics, SimulationResult, TacticalScenario, TeamTactics, Vec2 } from '../types'
 import { clamp, distance } from './coordinates'
+import { getGoalkeepingAttributes, getTacticalPositionGroup, validatePlayerInstructions } from './playerInstructions'
 import { SeededRandom } from './random'
 
 interface PossessionOutcome {
@@ -16,7 +17,7 @@ interface PossessionOutcome {
 const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x))
 
 function isGoalkeeper(player: PlayerTacticalProfile): boolean {
-  return /门将|goalkeeper|keeper|(^|\s)gk($|\s)/i.test(`${player.position} ${player.role}`)
+  return getTacticalPositionGroup(player) === 'goalkeeper'
 }
 
 function moveTowards(current: Vec2, target: Vec2, maximumDistance: number): Vec2 {
@@ -31,9 +32,13 @@ function defensiveTarget(player: PlayerTacticalProfile, ball: Vec2, tactics: Tea
   const lineShift = (tactics.defensiveLine - 50) * .18
   const compactness = .08 + player.marking / 260 + individualPress * .12
   const base = { x: player.anchor.x - attackDirection * lineShift, y: 34 + (player.anchor.y - 34) * (.72 + tactics.width / 180) }
-  if (isGoalkeeper(player)) return {
-    x: clamp(base.x + (ball.x - base.x) * .035, player.side === 'home' ? 1 : 92, player.side === 'home' ? 13 : 104),
-    y: clamp(base.y + (ball.y - base.y) * .08, 24, 44)
+  if (isGoalkeeper(player)) {
+    const goalkeeping = getGoalkeepingAttributes(player)
+    const rushingWeight = .015 + goalkeeping.rushingOut / 100 * .075
+    return {
+      x: clamp(base.x + (ball.x - base.x) * rushingWeight, player.side === 'home' ? 1 : 92, player.side === 'home' ? 13 : 104),
+      y: clamp(base.y + (ball.y - base.y) * (.04 + goalkeeping.rushingOut / 1250), 24, 44)
+    }
   }
   let mark: Vec2 | undefined, markDistance = Number.POSITIVE_INFINITY
   for (const attacker of attackers) {
@@ -142,7 +147,10 @@ function simulatePossession(scenario: TacticalScenario, iteration: number, colle
 
     if (actionType === 'shot') {
       const angleFactor = 1 - Math.min(1, Math.abs(carrierPoint.y - 34) / 34)
-      xg = clamp(sigmoid(-3.25 + (32 - goalDistance) * .085 + angleFactor * 1.05 + carrier.attributes.shooting / 120 - pressure * 1.2), .01, .75)
+      const goalkeeper = defenders.find(isGoalkeeper)
+      const goalkeeperSkill = goalkeeper ? getGoalkeepingAttributes(goalkeeper) : undefined
+      const saveAdjustment = goalkeeperSkill ? ((goalkeeperSkill.shotStopping - 50) * .7 + (goalkeeperSkill.oneOnOnes - 50) * (goalDistance < 16 ? .5 : .25)) / 70 : 0
+      xg = clamp(sigmoid(-3.25 + (32 - goalDistance) * .085 + angleFactor * 1.05 + carrier.attributes.shooting / 120 - pressure * 1.2 - saveAdjustment), .01, .75)
       shot = true
       actions.push({ index: actionIndex, kind: 'shot', playerId: carrier.playerId, start: carrierPoint, end: { x: attackDirection === 1 ? 105 : 0, y: 34 }, success: random.next() < xg, probability: xg, xg, note: `压力 ${Math.round(pressure * 100)}% · xG ${xg.toFixed(2)}` })
       ball = carrierPoint
@@ -171,7 +179,8 @@ function simulatePossession(scenario: TacticalScenario, iteration: number, colle
       const passDistance = distance(carrierPoint, target.point)
       const targetPressure = nearestPressure(target.point, defenders, defenderPositions, defenceTactics)
       const forward = (target.point.x - carrierPoint.x) * attackDirection
-      const successProbability = clamp(sigmoid(2.3 + carrier.attributes.passing / 90 + carrier.attributes.vision / 220 + target.player.attributes.firstTouch / 240 + carrier.attributes.decisions / 190 - passDistance / 17 - targetPressure * 2.25 - Math.max(0, forward) * carrier.passRisk / 12000), .12, .98)
+      const passingAbility = isGoalkeeper(carrier) ? (carrier.attributes.passing + getGoalkeepingAttributes(carrier).distribution) / 2 : carrier.attributes.passing
+      const successProbability = clamp(sigmoid(2.3 + passingAbility / 90 + carrier.attributes.vision / 220 + target.player.attributes.firstTouch / 240 + carrier.attributes.decisions / 190 - passDistance / 17 - targetPressure * 2.25 - Math.max(0, forward) * carrier.passRisk / 12000), .12, .98)
       const success = random.next() < successProbability
       actions.push({ index: actionIndex, kind: 'pass', playerId: carrier.playerId, targetPlayerId: target.player.playerId, start: carrierPoint, end: target.point, success, probability: successProbability, note: success ? `传给 ${target.player.name}` : '传球被拦截' })
       ball = target.point
@@ -210,6 +219,9 @@ export function validateScenario(scenario: TacticalScenario): void {
     if (!Number.isFinite(player.anchor?.x) || !Number.isFinite(player.anchor?.y) || player.anchor.x < 0 || player.anchor.x > 105 || player.anchor.y < 0 || player.anchor.y > 68) throw new Error(`${player.name} 的站位超出球场范围`)
     const values = [player.passRisk, player.passForward, player.passDirectness, player.shootTendency, player.carryTendency, player.pressIntensity, player.marking, ...Object.values(player.attributes)]
     if (values.some(value => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error(`${player.name} 的倾向或属性必须在 0–100 之间`)
+    const instructionError = validatePlayerInstructions(player)
+    if (instructionError) throw new Error(instructionError)
+    if (player.goalkeeping && Object.values(player.goalkeeping).some(value => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error(`${player.name} 的门将专项属性必须在 0–100 之间`)
   }
   for (const tactics of [scenario.homeTactics, scenario.awayTactics]) {
     const values = [tactics.width, tactics.depth, tactics.defensiveLine, tactics.pressing, tactics.transitionSpeed]
