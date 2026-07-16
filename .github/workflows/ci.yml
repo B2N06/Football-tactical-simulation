@@ -10,24 +10,28 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - run: npm install
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
 
   package-windows:
     runs-on: windows-latest
     needs: validate
     steps:
       - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - run: npm install
-      - run: npm run pack:win
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm pack:win
       - uses: actions/upload-artifact@v4
         with:
           name: football-tactical-simulation-windows

@@ -9,24 +9,58 @@ import { createDemoScenario } from '../src/engine/demo'
 import { validateScenario } from '../src/engine/simulation'
 import { fetchStatsBombOpenMatch } from '../src/providers/statsbomb'
 import { fetchFootballDataMatch, testFootballData } from '../src/providers/footballData'
-import type { CanonicalMatchBundle, SimulationComparison, TacticalScenario } from '../src/types'
+import type { CanonicalMatchBundle, MatchEvent, SimulationComparison, TacticalScenario } from '../src/types'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 let mainWindow: BrowserWindow | null = null
 let database: TacticalDatabase
 const imports = new ImportService()
 
-function demoBundle(): CanonicalMatchBundle {
+function demoBundles(): CanonicalMatchBundle[] {
   const scenario = createDemoScenario()
   const allPlayers = [...scenario.home, ...scenario.away]
-  return {
-    schemaVersion: 1, source: { provider: '内置合成示例', sourceId: 'demo', importedAt: new Date().toISOString() },
-    match: { id: 'demo-match', competition: '战术实验示例', season: '2026', date: '2026-07-15', homeTeamId: 'home', awayTeamId: 'away' },
-    teams: [{ id: 'home', name: '海港竞技', color: '#19c37d' }, { id: 'away', name: '城南联队', color: '#ff7262' }],
-    players: allPlayers.map(player => ({ id: player.playerId, name: player.name, teamId: player.side, shirtNumber: player.shirtNumber, position: player.position })),
-    lineups: allPlayers.map(player => ({ teamId: player.side, playerId: player.playerId, starter: true, position: player.position })),
-    events: [], frames: []
-  }
+  const event = (matchId: string, index: number, teamId: 'home' | 'away', playerId: string, kind: MatchEvent['kind'], start: [number, number], end?: [number, number], outcome?: MatchEvent['outcome'], recipientId?: string, xg?: number): MatchEvent => ({
+    id: `${matchId}-event-${index}`, matchId, period: index < 11 ? 1 : 2, second: index * 41,
+    teamId, playerId, recipientId, kind, start: { x: start[0], y: start[1] }, end: end ? { x: end[0], y: end[1] } : undefined, outcome, xg
+  })
+  const matchDefinitions = [
+    { id: 'demo-team-1', date: '2026-06-20', homeTeamId: 'home', awayTeamId: 'away', homeScore: 2, awayScore: 1, homeRisk: false },
+    { id: 'demo-team-2', date: '2026-06-27', homeTeamId: 'away', awayTeamId: 'home', homeScore: 0, awayScore: 1, homeRisk: true },
+    { id: 'demo-team-3', date: '2026-07-05', homeTeamId: 'home', awayTeamId: 'away', homeScore: 1, awayScore: 1, homeRisk: false }
+  ] as const
+  return matchDefinitions.map(definition => {
+    const events: MatchEvent[] = [
+      event(definition.id, 1, 'home', 'home-1', 'pass', [8, 34], [24, 38], 'success', 'home-4'),
+      event(definition.id, 2, 'home', 'home-4', 'pass', [24, 38], [43, 34], 'success', 'home-6'),
+      event(definition.id, 3, 'home', 'home-6', 'pass', [43, 34], [65, 28], 'success', 'home-10'),
+      event(definition.id, 4, 'home', 'home-10', 'pass', [65, 28], [76, 12], definition.homeRisk ? 'failure' : 'success', 'home-11'),
+      event(definition.id, 5, 'home', 'home-11', 'carry', [76, 12], [89, 20], 'success'),
+      event(definition.id, 6, 'home', 'home-11', 'pass', [89, 20], [94, 34], 'success', 'home-9'),
+      event(definition.id, 7, 'home', 'home-9', 'shot', [94, 34], [105, 34], definition.homeRisk ? 'failure' : 'success', undefined, definition.homeRisk ? .18 : .34),
+      event(definition.id, 8, 'home', 'home-7', 'pressure', [74, 51]),
+      event(definition.id, 9, 'home', 'home-8', 'recovery', [72, 38], undefined, 'success'),
+      event(definition.id, 10, 'home', 'home-10', 'turnover', [58, 31]),
+      event(definition.id, 11, 'away', 'away-1', 'pass', [9, 34], [27, 30], 'success', 'away-4'),
+      event(definition.id, 12, 'away', 'away-4', 'pass', [27, 30], [46, 39], 'success', 'away-8'),
+      event(definition.id, 13, 'away', 'away-8', 'pass', [46, 39], [68, 54], 'success', 'away-7'),
+      event(definition.id, 14, 'away', 'away-7', 'carry', [68, 54], [78, 49], 'success'),
+      event(definition.id, 15, 'away', 'away-7', 'pass', [78, 49], [92, 35], definition.homeRisk ? 'success' : 'failure', 'away-9'),
+      event(definition.id, 16, 'away', 'away-9', 'shot', [92, 35], [105, 34], 'failure', undefined, definition.homeRisk ? .29 : .14),
+      event(definition.id, 17, 'away', 'away-6', 'pressure', [68, 31]),
+      event(definition.id, 18, 'away', 'away-6', 'recovery', [64, 35], undefined, 'success'),
+      event(definition.id, 19, 'away', 'away-8', 'turnover', [52, 40])
+    ]
+    return {
+      schemaVersion: 1,
+      source: { provider: '内置合成示例', sourceId: definition.id, importedAt: new Date().toISOString(), attribution: '完全合成数据，仅用于产品演示与测试。' },
+      match: { id: definition.id, competition: '战术实验示例', season: '2026', date: definition.date, homeTeamId: definition.homeTeamId, awayTeamId: definition.awayTeamId, homeScore: definition.homeScore, awayScore: definition.awayScore },
+      teams: [{ id: 'home', name: '海港竞技', color: '#19c37d' }, { id: 'away', name: '城南联队', color: '#ff7262' }],
+      players: allPlayers.map(player => ({ id: player.playerId, name: player.name, teamId: player.side, shirtNumber: player.shirtNumber, position: player.position })),
+      lineups: allPlayers.map(player => ({ teamId: player.side, playerId: player.playerId, starter: true, position: player.position })),
+      events,
+      frames: [{ second: 164, possessionTeamId: 'home', ball: { x: 65, y: 28 }, players: allPlayers.map(player => ({ playerId: player.playerId, teammate: player.side === 'home', position: player.anchor })), confidence: 'modelled-high' }]
+    }
+  })
 }
 
 async function readStoredToken(): Promise<string> {
@@ -45,9 +79,10 @@ function registerIpc(): void {
   ipcMain.handle('db:list-matches', () => database.listMatches())
   ipcMain.handle('db:get-match', (_event, matchId: string) => database.getMatchBundle(String(matchId).slice(0, 200)))
   ipcMain.handle('db:get-related-matches', (_event, matchId: string) => database.getRelatedMatchBundles(String(matchId).slice(0, 200)))
+  ipcMain.handle('db:get-team-matches', (_event, matchId: string, teamId: string) => database.getTeamMatchBundles(String(matchId).slice(0, 200), String(teamId).slice(0, 200)))
   ipcMain.handle('db:seed-demo', () => {
-    database.importBundle(demoBundle())
-    return { ok: true, message: '合成示例已写入本地数据库。', summary: database.summary() }
+    demoBundles().forEach(bundle => database.importBundle(bundle))
+    return { ok: true, message: '3 场球队级合成示例已写入本地数据库。', summary: database.summary() }
   })
   ipcMain.handle('scenario:save', (_event, scenario: TacticalScenario) => { validateScenario(scenario); database.saveScenario(scenario); return { ok: true } })
   ipcMain.handle('import:preview', async () => {

@@ -97,5 +97,16 @@ export class TacticalDatabase {
     return [primary, ...related]
   }
 
+  getTeamMatchBundles(matchId: string, teamId: string, limit = 30): CanonicalMatchBundle[] {
+    const primary = this.getMatchBundle(matchId)
+    const participated = (bundle: CanonicalMatchBundle) => bundle.match.homeTeamId === teamId || bundle.match.awayTeamId === teamId
+    if (!participated(primary)) throw new Error('所选球队未参加基准比赛')
+    const result = this.db.exec('SELECT bundle_json FROM matches ORDER BY match_date DESC, imported_at DESC')
+    const candidates = (result[0]?.values ?? []).map(row => JSON.parse(String(row[0])) as CanonicalMatchBundle)
+      .filter(bundle => bundle.source.provider === primary.source.provider && participated(bundle))
+    const ordered = [primary, ...candidates.filter(bundle => bundle.match.id !== primary.match.id)]
+    return ordered.slice(0, Math.max(1, Math.min(50, limit)))
+  }
+
   backup(destination: string): void { writeFileSync(destination, Buffer.from(this.db.export())) }
 }

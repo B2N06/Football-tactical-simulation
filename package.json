@@ -1,17 +1,18 @@
 {
   "name": "football-tactical-simulation",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Offline-first, player-level football tactical simulation desktop application.",
   "main": "out/main/main.js",
   "author": "B2N06",
   "license": "MIT",
+  "packageManager": "pnpm@11.9.0",
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "npm run typecheck && npm run test && electron-vite build",
-    "pack:win": "npm run build && electron-builder --win nsis portable --publish never",
+    "build": "pnpm typecheck && pnpm test && electron-vite build",
+    "pack:win": "pnpm build && electron-builder --win nsis portable --publish never",
     "preview": "electron-vite preview"
   },
   "dependencies": {
@@ -56,7 +57,7 @@
         "nsis",
         "portable"
       ],
-      "signAndEditExecutable": false
+      "signExecutable": false
     },
     "nsis": {
       "artifactName": "Football-Tactical-Simulation-Setup-${version}-${arch}.${ext}",

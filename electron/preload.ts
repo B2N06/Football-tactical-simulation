@@ -6,6 +6,7 @@ const api: DesktopApi = {
   listMatches: () => ipcRenderer.invoke('db:list-matches'),
   getMatchBundle: matchId => ipcRenderer.invoke('db:get-match', matchId),
   getRelatedMatchBundles: matchId => ipcRenderer.invoke('db:get-related-matches', matchId),
+  getTeamMatchBundles: (matchId, teamId) => ipcRenderer.invoke('db:get-team-matches', matchId, teamId),
   previewImport: () => ipcRenderer.invoke('import:preview'),
   commitImport: token => ipcRenderer.invoke('import:commit', token),
   seedDemo: () => ipcRenderer.invoke('db:seed-demo'),

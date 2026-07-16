@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pitch } from './components/Pitch'
 import { MetricCard } from './components/MetricCard'
+import { TeamAnalysisPage } from './components/TeamAnalysisPage'
 import { createDemoScenario } from './engine/demo'
 import { createScenarioFromBundles } from './engine/history'
 import { getPlayerSide } from './engine/scenario'
 import { getGoalkeepingAttributes, getPlayerInstructionPreset } from './engine/playerInstructions'
 import type { DatabaseSummary, ImportPreview, PlayerTacticalProfile, SimulationAction, SimulationComparison, StoredMatchSummary, TacticalScenario, TeamSide, Vec2 } from './types'
 
-type Page = 'data' | 'analysis' | 'players' | 'tactics' | 'simulation' | 'settings'
+type Page = 'data' | 'analysis' | 'team' | 'players' | 'tactics' | 'simulation' | 'settings'
 
 const nav: Array<{ id: Page; label: string; icon: string }> = [
-  { id: 'data', label: '数据中心', icon: '◫' }, { id: 'analysis', label: '比赛分析', icon: '⌁' },
+  { id: 'data', label: '数据中心', icon: '◫' }, { id: 'analysis', label: '比赛分析', icon: '⌁' }, { id: 'team', label: '球队分析', icon: '◈' },
   { id: 'players', label: '球员档案', icon: '◎' }, { id: 'tactics', label: '战术编辑器', icon: '✣' },
   { id: 'simulation', label: '推演实验室', icon: '▶' }, { id: 'settings', label: '设置', icon: '⚙' }
 ]
@@ -43,7 +44,7 @@ function App() {
   const [statsBombId, setStatsBombId] = useState('')
   const [footballDataToken, setFootballDataToken] = useState('')
   const [footballDataMatchId, setFootballDataMatchId] = useState('')
-  const [appInfo, setAppInfo] = useState({ version: '0.3.2', databasePath: '正在读取…', platform: 'Windows x64' })
+  const [appInfo, setAppInfo] = useState({ version: '0.4.0', databasePath: '正在读取…', platform: 'Windows x64' })
   const workerRef = useRef<Worker | null>(null)
 
   const refreshData = async () => {
@@ -130,6 +131,7 @@ function App() {
       <section className="page-content">
         {page === 'data' && <DataCenter summary={summary} matches={matches} preview={preview} setPreview={setPreview} statsBombId={statsBombId} setStatsBombId={setStatsBombId} footballDataToken={footballDataToken} setFootballDataToken={setFootballDataToken} footballDataMatchId={footballDataMatchId} setFootballDataMatchId={setFootballDataMatchId} act={act} onCreateScenario={createScenarioFromMatch}/>}
         {page === 'analysis' && <MatchAnalysis matches={matches} scenario={scenario}/>} 
+        {page === 'team' && <TeamAnalysisPage matches={matches} onCreateScenario={createScenarioFromMatch}/>}
         {page === 'players' && <PlayerProfiles scenario={scenario} selectedId={selectedId} setSelectedId={selectPlayer} setPage={setPage}/>}
         {page === 'tactics' && <TacticsEditor scenario={scenario} selected={selected} selectedId={selectedId} side={side} onTeamChange={selectTeam} onSelectPlayer={selectPlayer} updatePlayer={updatePlayer} movePlayer={movePlayer} updateTeamTactics={updateTeamTactics} setScenario={setScenario} setPage={setPage} onReset={resetScenario}/>}
         {page === 'simulation' && <SimulationLab scenario={scenario} setScenario={setScenario} comparison={comparison} running={running} progress={simulationProgress} runSimulation={runSimulation} cancel={() => { workerRef.current?.terminate(); workerRef.current = null; setRunning(false); setSimulationProgress({ value: 0, phase: '已取消' }); setNotice({ kind: 'error', text: '推演已取消。' }) }} replayActions={replayActions} replayMode={replayMode} setReplayMode={setReplayMode} replayStep={replayStep} setReplayStep={setReplayStep} exportResult={(format) => comparison && act(() => window.footballApi.exportResult(format, comparison).then(result => ({ message: result.ok ? `已导出到 ${result.path}` : '已取消导出。' })))}/>}
