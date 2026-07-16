@@ -87,5 +87,26 @@ export class TacticalDatabase {
     } finally { statement.free() }
   }
 
+  getRelatedMatchBundles(matchId: string, limit = 20): CanonicalMatchBundle[] {
+    const primary = this.getMatchBundle(matchId)
+    const playerIds = new Set(primary.players.map(player => player.id))
+    const result = this.db.exec('SELECT bundle_json FROM matches ORDER BY imported_at DESC')
+    const related = (result[0]?.values ?? []).map(row => JSON.parse(String(row[0])) as CanonicalMatchBundle)
+      .filter(bundle => bundle.match.id !== primary.match.id && bundle.source.provider === primary.source.provider && bundle.players.some(player => playerIds.has(player.id)))
+      .slice(0, Math.max(0, Math.min(49, limit - 1)))
+    return [primary, ...related]
+  }
+
+  getTeamMatchBundles(matchId: string, teamId: string, limit = 30): CanonicalMatchBundle[] {
+    const primary = this.getMatchBundle(matchId)
+    const participated = (bundle: CanonicalMatchBundle) => bundle.match.homeTeamId === teamId || bundle.match.awayTeamId === teamId
+    if (!participated(primary)) throw new Error('所选球队未参加基准比赛')
+    const result = this.db.exec('SELECT bundle_json FROM matches ORDER BY match_date DESC, imported_at DESC')
+    const candidates = (result[0]?.values ?? []).map(row => JSON.parse(String(row[0])) as CanonicalMatchBundle)
+      .filter(bundle => bundle.source.provider === primary.source.provider && participated(bundle))
+    const ordered = [primary, ...candidates.filter(bundle => bundle.match.id !== primary.match.id)]
+    return ordered.slice(0, Math.max(1, Math.min(50, limit)))
+  }
+
   backup(destination: string): void { writeFileSync(destination, Buffer.from(this.db.export())) }
 }

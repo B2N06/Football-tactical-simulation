@@ -139,6 +139,14 @@ export interface PlayerTacticalProfile {
     decisions: number
     vision: number
   }
+  goalkeeping?: {
+    shotStopping: number
+    handling: number
+    aerialReach: number
+    oneOnOnes: number
+    rushingOut: number
+    distribution: number
+  }
   confidence: Confidence
   historicalSampleSize?: number
 }
@@ -169,6 +177,7 @@ export interface TacticalScenario {
   calibration?: {
     provider: string
     sourceMatchId: string
+    matchCount: number
     eventCount: number
     frameCount: number
     lowSamplePlayers: number
@@ -254,6 +263,105 @@ export interface StoredMatchSummary {
   source: string
 }
 
+export interface TeamAnalysisMetrics {
+  eventShare: number
+  passSuccess: number
+  forwardPassShare: number
+  progressiveActionsPerMatch: number
+  finalThirdEntriesPerMatch: number
+  boxEntriesPerMatch: number
+  shotsPerMatch: number
+  xgPerMatch: number | null
+  xgPerShot: number | null
+  turnoversPerMatch: number
+  defensiveActionsPerMatch: number
+  highRegainsPerMatch: number
+  fieldTilt: number
+  ppdaApprox: number | null
+  buildUpShare: number
+  middleThirdShare: number
+  finalThirdShare: number
+  leftShare: number
+  centreShare: number
+  rightShare: number
+}
+
+export interface TeamMatchTrend {
+  matchId: string
+  date: string
+  opponentId: string
+  opponentName: string
+  venue: '主场' | '客场'
+  score?: string
+  result?: '胜' | '平' | '负'
+  metrics: TeamAnalysisMetrics
+}
+
+export interface TeamPlayerContribution {
+  playerId: string
+  name: string
+  position: string
+  shirtNumber: number
+  matches: number
+  events: number
+  passes: number
+  passSuccess: number
+  progressiveActions: number
+  carries: number
+  shots: number
+  xg: number | null
+  defensiveActions: number
+  turnovers: number
+  involvementShare: number
+  influenceIndex: number
+}
+
+export interface TeamZoneAnalysis {
+  id: string
+  label: string
+  column: number
+  row: number
+  actionShare: number
+  opponentShare: number
+  delta: number
+}
+
+export interface TeamAnalysisInsight {
+  kind: 'strength' | 'watch' | 'risk'
+  title: string
+  evidence: string
+  action: string
+}
+
+export interface TeamTacticalAnalysis {
+  teamId: string
+  teamName: string
+  teamColor: string
+  provider: string
+  competitions: string[]
+  seasons: string[]
+  dateRange: { from: string; to: string }
+  matchesAnalyzed: number
+  record: { wins: number; draws: number; losses: number; goalsFor: number; goalsAgainst: number; scoredMatches: number }
+  metrics: TeamAnalysisMetrics
+  opponentMetrics: TeamAnalysisMetrics
+  trends: TeamMatchTrend[]
+  formationUsage: Array<{ formation: string; count: number; share: number }>
+  zones: TeamZoneAnalysis[]
+  players: TeamPlayerContribution[]
+  passNetwork: Array<{ fromId: string; fromName: string; toId: string; toName: string; count: number; successRate: number }>
+  insights: TeamAnalysisInsight[]
+  dataQuality: {
+    scoreCoverage: number
+    xgCoverage: number
+    playerAttribution: number
+    trackingCoverage: number
+    level: '高' | '中' | '低'
+    notes: string[]
+  }
+  generatedAt: string
+}
+
 export interface AiAnalysisProvider {
   readonly enabled: false
   readonly name: string
@@ -264,6 +372,8 @@ export interface DesktopApi {
   getDatabaseSummary(): Promise<DatabaseSummary>
   listMatches(): Promise<StoredMatchSummary[]>
   getMatchBundle(matchId: string): Promise<CanonicalMatchBundle>
+  getRelatedMatchBundles(matchId: string): Promise<CanonicalMatchBundle[]>
+  getTeamMatchBundles(matchId: string, teamId: string): Promise<CanonicalMatchBundle[]>
   previewImport(): Promise<ImportPreview | null>
   commitImport(token: string): Promise<{ ok: boolean; message: string; summary: DatabaseSummary }>
   seedDemo(): Promise<{ ok: boolean; message: string; summary: DatabaseSummary }>

@@ -34,6 +34,29 @@ describe('SQLite 持久化', () => {
     expect(reopened.summary().matches).toBe(1)
   })
 
+  it('按提供商和重叠球员返回相关历史比赛', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'fts-db-')); tempPaths.push(directory)
+    const database = new TacticalDatabase(join(directory, 'test.sqlite')); await database.init()
+    database.importBundle(bundle('primary'))
+    const related = bundle('related'); related.players[0].name = '同一球员'; database.importBundle(related)
+    const unrelated = bundle('unrelated'); unrelated.source.provider = 'other'; database.importBundle(unrelated)
+    const bundles = database.getRelatedMatchBundles('primary')
+    expect(bundles.map(item => item.match.id)).toEqual(['primary', 'related'])
+  })
+
+  it('按稳定球队标识返回同一提供商的多场比赛，并把基准比赛放在首位', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'fts-db-')); tempPaths.push(directory)
+    const database = new TacticalDatabase(join(directory, 'test.sqlite')); await database.init()
+    const primary = bundle('primary-team'); primary.match.date = '2026-01-01'; primary.teams.push({ id: 'metadata-only', name: '元数据球队', color: '#999' }); database.importBundle(primary)
+    const sameTeam = bundle('same-team'); sameTeam.match.date = '2026-02-01'; sameTeam.match.awayTeamId = 'c'; sameTeam.teams[1] = { id: 'c', name: 'C', color: '#00f' }; database.importBundle(sameTeam)
+    const unrelated = bundle('unrelated-team'); unrelated.match.date = '2026-03-01'; unrelated.match.homeTeamId = 'd'; unrelated.match.awayTeamId = 'e'; unrelated.teams = [{ id: 'd', name: 'D', color: '#333' }, { id: 'e', name: 'E', color: '#555' }]; database.importBundle(unrelated)
+    const otherProvider = bundle('other-provider-team'); otherProvider.source.provider = 'other'; database.importBundle(otherProvider)
+
+    expect(database.getTeamMatchBundles('primary-team', 'a').map(item => item.match.id)).toEqual(['primary-team', 'same-team'])
+    expect(() => database.getTeamMatchBundles('primary-team', 'metadata-only')).toThrow('未参加基准比赛')
+    expect(() => database.getTeamMatchBundles('primary-team', 'missing')).toThrow('未参加基准比赛')
+  })
+
   it('序列化失败时回滚整个导入', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'fts-db-')); tempPaths.push(directory)
     const database = new TacticalDatabase(join(directory, 'test.sqlite')); await database.init()

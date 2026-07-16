@@ -25,6 +25,8 @@ describe('蒙特卡洛战术推演', () => {
     expect(result.metrics.shotRate).toBeLessThanOrEqual(1)
     expect(result.confidenceInterval.shotRate[0]).toBeLessThanOrEqual(result.confidenceInterval.shotRate[1])
     expect(result.qualityNotes.join('')).toContain('概率模型')
+    expect(Object.keys(result.playerHeatmaps)).toHaveLength(22)
+    expect(result.playerHeatmaps['away-9'].length).toBeGreaterThan(0)
   })
   it('防线高度、压迫与个人盯人会实际改变进攻结果', () => {
     const passive = createDemoScenario(); passive.iterations = 360
@@ -36,6 +38,14 @@ describe('蒙特卡洛战术推演', () => {
     const passiveResult = simulateScenario(passive), aggressiveResult = simulateScenario(aggressive)
     expect(aggressiveResult.metrics.retentionRate).toBeLessThan(passiveResult.metrics.retentionRate)
     expect(aggressiveResult.metrics.averageProgression).not.toBe(passiveResult.metrics.averageProgression)
+  })
+  it('门将扑救和一对一能力会降低对方机会质量', () => {
+    const weakGoalkeeper = createDemoScenario(); weakGoalkeeper.iterations = 420
+    const strongGoalkeeper = structuredClone(weakGoalkeeper)
+    weakGoalkeeper.away[0].goalkeeping = { shotStopping: 0, handling: 50, aerialReach: 50, oneOnOnes: 0, rushingOut: 50, distribution: 50 }
+    strongGoalkeeper.away[0].goalkeeping = { shotStopping: 100, handling: 50, aerialReach: 50, oneOnOnes: 100, rushingOut: 50, distribution: 50 }
+    const weakResult = simulateScenario(weakGoalkeeper), strongResult = simulateScenario(strongGoalkeeper)
+    expect(strongResult.metrics.averageXg).toBeLessThan(weakResult.metrics.averageXg)
   })
   it('阵型宽度、纵深与组织方式会改变跑位和通道分布', () => {
     const narrow = createDemoScenario(); narrow.iterations = 240
@@ -61,5 +71,22 @@ describe('蒙特卡洛战术推演', () => {
     expect(() => validateScenario(scenario)).toThrow('0–100')
     scenario.home[0].attributes.passing = 70; scenario.maxActions = 51
     expect(() => validateScenario(scenario)).toThrow('1–50')
+  })
+
+  it('报告基准与修改方案的单调后台进度', () => {
+    const scenario = createDemoScenario(); scenario.iterations = 40
+    const updates: Array<{ progress: number; phase: string }> = []
+    compareScenarios(scenario, structuredClone(scenario), (progress, phase) => updates.push({ progress, phase }))
+    expect(updates[0]).toMatchObject({ phase: 'baseline' })
+    expect(updates.at(-1)).toEqual({ progress: 1, phase: 'modified' })
+    expect(updates.every((item, index) => index === 0 || item.progress >= updates[index - 1].progress)).toBe(true)
+  })
+
+  it('拒绝用不同样本数或随机种子进行不公平对比', () => {
+    const baseline = createDemoScenario(), modified = structuredClone(baseline)
+    modified.iterations += 1
+    expect(() => compareScenarios(baseline, modified)).toThrow('相同推演次数')
+    modified.iterations = baseline.iterations; modified.seed += 1
+    expect(() => compareScenarios(baseline, modified)).toThrow('相同随机种子')
   })
 })

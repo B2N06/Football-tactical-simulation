@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { ImportService } from '../../electron/importer'
 import { statsBombEventsToBundle } from '../providers/statsbomb'
-import { parseTrackingCsv } from '../providers/canonical'
+import { parseCanonicalBundle, parseTrackingCsv } from '../providers/canonical'
 import { DisabledAiProvider } from '../providers/ai'
 
 describe('数据适配器', () => {
@@ -33,5 +36,21 @@ describe('数据适配器', () => {
       { id: 'b', match_id: 7, type: { name: 'Pressure' }, team: { id: 2, name: 'B' }, player: { id: 21, name: '乙' }, location: [20, 10] }
     ], [{ team_id: 1, team_name: 'A', lineup: [{ player_id: 11, player_name: '甲', positions: [{ position: { name: 'Left Back' } }] }] }])
     expect(bundle.players.find(player => player.id === '11')?.position).toBe('Left Back')
+  })
+  it('仓库内的完整标准 JSON 示例可以直接导入', () => {
+    const file = new URL('../../examples/demo-match-canonical.json', import.meta.url)
+    const text = readFileSync(file, 'utf8')
+    const bundle = parseCanonicalBundle(JSON.parse(text))
+    expect(bundle.players).toHaveLength(22)
+    expect(bundle.lineups).toHaveLength(22)
+    expect(bundle.events).toHaveLength(30)
+    expect(bundle.frames).toHaveLength(4)
+    expect(bundle.players[0].id).toBe('1001')
+  })
+  it('完整示例通过桌面导入预览和事务提交前取数流程', async () => {
+    const service = new ImportService()
+    const preview = await service.preview(fileURLToPath(new URL('../../examples/demo-match-canonical.json', import.meta.url)))
+    expect(preview).toMatchObject({ valid: true, format: 'canonical-json', playerCount: 22, eventCount: 30, frameCount: 4 })
+    expect(service.take(preview.token).match.id).toBe('demo-canonical-2026-001')
   })
 })

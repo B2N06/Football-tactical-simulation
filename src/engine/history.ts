@@ -84,17 +84,18 @@ function profileFromHistory(
   const defensiveShare = smoothedRatio(defensiveActions.length, Math.max(1, events.length), .12)
   const sampleSize = events.length + observedPositions.length
   const base = ['gk', 'cb', 'rb', 'lb', 'dm'].includes(assigned.group) ? 62 : 67
+  const goalkeeper = assigned.group === 'gk'
   const attacker = ['rw', 'lw', 'st', 'am'].includes(assigned.group)
   const defender = ['cb', 'rb', 'lb', 'dm'].includes(assigned.group)
   const anchor = observedPositions.length >= 5 ? {
     x: clamp(mean(observedPositions.map(point => point.x), assigned.anchor.x), 1, 104),
     y: clamp(mean(observedPositions.map(point => point.y), assigned.anchor.y), 2, 66)
   } : assigned.anchor
-  return {
+  const profile: PlayerTacticalProfile = {
     playerId: assigned.player.id, name: assigned.player.name, shirtNumber: assigned.player.shirtNumber || Number(assigned.player.id.replace(/\D/g, '').slice(-2)) || 0,
     side, position: assigned.player.position === '待配置位置' ? groupLabels[assigned.group] : assigned.player.position,
-    role: groupLabels[assigned.group], duty: attacker ? '进攻' : defender ? '防守' : '支援', anchor,
-    runPattern: assigned.group === 'rw' || assigned.group === 'lw' ? '内切' : attacker ? '前插' : defender ? '保持位置' : '自由跑位',
+    role: groupLabels[assigned.group], duty: goalkeeper || defender ? '防守' : attacker ? '进攻' : '支援', anchor,
+    runPattern: goalkeeper || defender ? '保持位置' : assigned.group === 'rw' || assigned.group === 'lw' ? '内切' : attacker ? '前插' : '自由跑位',
     passRisk: rounded(28 + (1 - passSuccess) * 42 + forwardShare * 16), passForward: rounded(forwardShare * 100),
     passDirectness: rounded(passDistance / 35 * 100), shootTendency: rounded(shotShare * 260), carryTendency: rounded(carryShare * 230),
     pressIntensity: rounded(42 + defensiveShare * 180), marking: defender ? 70 : rounded(42 + defensiveShare * 90),
@@ -107,6 +108,11 @@ function profileFromHistory(
     confidence: observedPositions.length >= 5 ? 'observed' : events.length >= 25 ? 'modelled-high' : 'modelled-low',
     historicalSampleSize: sampleSize
   }
+  if (assigned.group === 'gk') profile.goalkeeping = {
+    shotStopping: rounded(62 + passSuccess * 12), handling: rounded(60 + passSuccess * 14), aerialReach: 68,
+    oneOnOnes: rounded(62 + defensiveShare * 35), rushingOut: rounded(42 + defensiveShare * 85), distribution: rounded(45 + passSuccess * 38 + passDistance / 5)
+  }
+  return profile
 }
 
 function stableSeed(value: string): number {
@@ -115,17 +121,23 @@ function stableSeed(value: string): number {
   return Math.abs(hash | 0) || 1
 }
 
-export function createScenarioFromBundle(bundle: CanonicalMatchBundle): TacticalScenario {
+export function createScenarioFromBundles(bundles: CanonicalMatchBundle[]): TacticalScenario {
+  const bundle = bundles[0]
+  if (!bundle) throw new Error('至少需要一场比赛才能创建战术方案')
   const homeTeam = bundle.teams.find(team => team.id === bundle.match.homeTeamId)
   const awayTeam = bundle.teams.find(team => team.id === bundle.match.awayTeamId)
   if (!homeTeam || !awayTeam) throw new Error('比赛数据缺少主队或客队信息，无法创建战术方案')
   const eventMap = new Map<string, MatchEvent[]>()
-  for (const event of bundle.events) if (event.playerId) {
+  const primaryPlayerIds = new Set(bundle.players.map(player => player.id))
+  const relatedBundles = [...new Map(bundles.filter(candidate => candidate.source.provider === bundle.source.provider).map(candidate => [candidate.match.id, candidate])).values()]
+  const pooledEvents = relatedBundles.flatMap(candidate => candidate.events).filter(event => event.playerId && primaryPlayerIds.has(event.playerId))
+  const pooledFrames = relatedBundles.flatMap(candidate => candidate.frames)
+  for (const event of pooledEvents) if (event.playerId) {
     const list = eventMap.get(event.playerId) ?? []
     list.push(event); eventMap.set(event.playerId, list)
   }
   const positionMap = new Map<string, Vec2[]>()
-  for (const frame of bundle.frames) for (const player of frame.players) if (player.playerId) {
+  for (const frame of pooledFrames) for (const player of frame.players) if (player.playerId && primaryPlayerIds.has(player.playerId)) {
     const list = positionMap.get(player.playerId) ?? []
     list.push(player.position); positionMap.set(player.playerId, list)
   }
@@ -139,6 +151,10 @@ export function createScenarioFromBundle(bundle: CanonicalMatchBundle): Tactical
     homeTactics: { width: 60, depth: 55, defensiveLine: 52, pressing: 58, transitionSpeed: 55, buildUp: '混合推进', focus: '均衡' },
     awayTactics: { width: 58, depth: 52, defensiveLine: 55, pressing: 60, transitionSpeed: 56, buildUp: '混合推进', focus: '均衡' },
     seed: stableSeed(`${bundle.source.provider}:${bundle.match.id}`), iterations: 1200, maxActions: 10,
-    calibration: { provider: bundle.source.provider, sourceMatchId: bundle.match.id, eventCount: bundle.events.length, frameCount: bundle.frames.length, lowSamplePlayers }
+    calibration: { provider: bundle.source.provider, sourceMatchId: bundle.match.id, matchCount: relatedBundles.length, eventCount: pooledEvents.length, frameCount: pooledFrames.length, lowSamplePlayers }
   }
+}
+
+export function createScenarioFromBundle(bundle: CanonicalMatchBundle): TacticalScenario {
+  return createScenarioFromBundles([bundle])
 }
