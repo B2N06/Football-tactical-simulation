@@ -10,10 +10,10 @@ function uniqueBy<T>(items: T[], key: (item: T) => string): T[] {
 export function statsBombEventsToBundle(events: JsonObject[], lineups: JsonObject[] = [], frames: JsonObject[] = [], sourceId = 'local'): CanonicalMatchBundle {
   if (!Array.isArray(events) || events.length === 0) throw new Error('StatsBomb 事件数组为空')
   const matchId = String(events[0].match_id ?? sourceId)
-  const teams: Team[] = uniqueBy(events.filter(e => e.team).map(e => ({ id: String(e.team.id), name: e.team.name, color: '#23c483' })), item => item.id)
-  if (teams.length < 2) {
-    for (const lineup of lineups) if (lineup.team_id) teams.push({ id: String(lineup.team_id), name: lineup.team_name ?? `球队 ${lineup.team_id}`, color: '#78a8ff' })
-  }
+  const teams: Team[] = uniqueBy([
+    ...events.filter(e => e.team).map(e => ({ id: String(e.team.id), name: e.team.name, color: '#23c483' })),
+    ...lineups.filter(lineup => lineup.team_id != null).map(lineup => ({ id: String(lineup.team_id), name: lineup.team_name ?? `球队 ${lineup.team_id}`, color: '#78a8ff' }))
+  ], item => item.id)
   const playersFromEvents: Player[] = events.filter(e => e.player).map(e => ({
     id: String(e.player.id), name: e.player.name, teamId: String(e.team?.id ?? ''), shirtNumber: 0, position: e.position?.name ?? '未知'
   }))
@@ -32,11 +32,12 @@ export function statsBombEventsToBundle(events: JsonObject[], lineups: JsonObjec
   }
   const canonicalEvents: MatchEvent[] = events.filter(e => e.location && kindMap[e.type?.name]).map(e => {
     const endLocation = e.pass?.end_location ?? e.carry?.end_location ?? e.shot?.end_location
-    const failed = Boolean(e.pass?.outcome || e.dribble?.outcome?.name === 'Incomplete')
+    const kind = kindMap[e.type.name]!
+    const failed = Boolean(e.pass?.outcome || kind === 'turnover' || (kind === 'shot' && e.shot?.outcome?.name && e.shot.outcome.name !== 'Goal') || e.duel?.outcome?.name?.startsWith('Lost') || e.ball_recovery?.recovery_failure)
     return {
       id: String(e.id), matchId, period: Number(e.period ?? 1), second: Number(e.minute ?? 0) * 60 + Number(e.second ?? 0),
       teamId: String(e.team?.id ?? ''), playerId: e.player ? String(e.player.id) : undefined,
-      recipientId: e.pass?.recipient ? String(e.pass.recipient.id) : undefined, kind: kindMap[e.type.name]!,
+      recipientId: e.pass?.recipient ? String(e.pass.recipient.id) : undefined, kind,
       start: normalizeStatsBomb(e.location), end: endLocation ? normalizeStatsBomb(endLocation) : undefined,
       outcome: failed ? 'failure' : 'success', xg: e.shot?.statsbomb_xg, underPressure: Boolean(e.under_pressure), raw: e
     }
@@ -64,16 +65,63 @@ export function statsBombEventsToBundle(events: JsonObject[], lineups: JsonObjec
 export async function fetchStatsBombOpenMatch(matchId: string): Promise<CanonicalMatchBundle> {
   if (!/^\d+$/.test(matchId)) throw new Error('比赛 ID 必须为数字')
   const base = 'https://raw.githubusercontent.com/statsbomb/open-data/master/data'
-  const fetchJson = async (path: string, optional = false): Promise<any[]> => {
-    const response = await fetch(`${base}/${path}`)
-    if (!response.ok) {
-      if (optional && response.status === 404) return []
-      throw new Error(`StatsBomb 下载失败：HTTP ${response.status}`)
+  const maxFileBytes = 75 * 1024 * 1024
+  const controllers = new Set<AbortController>()
+  const fetchJson = async (path: string, optional = false): Promise<JsonObject[]> => {
+    const controller = new AbortController()
+    controllers.add(controller)
+    let timedOut = false
+    const timeout = setTimeout(() => { timedOut = true; controller.abort() }, 30000)
+    try {
+      const response = await fetch(`${base}/${path}`, { signal: controller.signal })
+      if (!response.ok) {
+        if (optional && response.status === 404) return []
+        throw new Error(`StatsBomb 下载失败：${path} · HTTP ${response.status}`)
+      }
+      const declaredLength = response.headers.get('Content-Length')
+      if (declaredLength !== null && Number(declaredLength) > maxFileBytes) throw new Error(`StatsBomb 文件过大：${path} 超过 75 MB 上限`)
+      let text: string
+      if (response.body) {
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        const parts: string[] = []
+        let bytes = 0
+        try {
+          while (true) {
+            const chunk = await reader.read()
+            if (chunk.done) break
+            bytes += chunk.value.byteLength
+            if (bytes > maxFileBytes) throw new Error(`StatsBomb 文件过大：${path} 超过 75 MB 上限`)
+            parts.push(decoder.decode(chunk.value, { stream: true }))
+          }
+          parts.push(decoder.decode())
+          text = parts.join('')
+        } finally { reader.releaseLock() }
+      } else {
+        text = await response.text()
+        if (new TextEncoder().encode(text).byteLength > maxFileBytes) throw new Error(`StatsBomb 文件过大：${path} 超过 75 MB 上限`)
+      }
+      let parsed: unknown
+      try { parsed = JSON.parse(text) }
+      catch { throw new Error(`StatsBomb 数据格式无效：${path} 不是有效 JSON`) }
+      if (!Array.isArray(parsed)) throw new Error(`StatsBomb 数据格式无效：${path} 必须是 JSON 数组`)
+      return parsed as JsonObject[]
+    } catch (error) {
+      if (timedOut) throw new Error(`StatsBomb 下载超时：${path}（30 秒），请稍后重试`)
+      if (error instanceof Error && error.message.startsWith('StatsBomb ')) throw error
+      throw new Error(`StatsBomb 下载失败：${path} · ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      clearTimeout(timeout)
+      controller.abort()
+      controllers.delete(controller)
     }
-    return await response.json() as any[]
   }
-  const [events, lineups, frames] = await Promise.all([
-    fetchJson(`events/${matchId}.json`), fetchJson(`lineups/${matchId}.json`, true), fetchJson(`three-sixty/${matchId}.json`, true)
-  ])
-  return statsBombEventsToBundle(events, lineups, frames, matchId)
+  try {
+    const [events, lineups, frames] = await Promise.all([
+      fetchJson(`events/${matchId}.json`), fetchJson(`lineups/${matchId}.json`, true), fetchJson(`three-sixty/${matchId}.json`, true)
+    ])
+    return statsBombEventsToBundle(events, lineups, frames, matchId)
+  } finally {
+    for (const controller of controllers) controller.abort()
+  }
 }

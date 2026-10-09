@@ -99,13 +99,14 @@ function chooseBallCarrier(players: PlayerTacticalProfile[], ball: Vec2): Player
 }
 
 function simulatePossession(scenario: TacticalScenario, iteration: number, collectPositions: boolean): PossessionOutcome {
-  const random = new SeededRandom(scenario.seed + iteration * 7919)
+  const random = new SeededRandom((scenario.seed >>> 0) + iteration * 7919)
   const attackers = scenario.possession === 'home' ? scenario.home : scenario.away
   const defenders = scenario.possession === 'home' ? scenario.away : scenario.home
   const attackTactics = scenario.possession === 'home' ? scenario.homeTactics : scenario.awayTactics
   const defenceTactics = scenario.possession === 'home' ? scenario.awayTactics : scenario.homeTactics
   const attackDirection: 1 | -1 = scenario.possession === 'home' ? 1 : -1
   let ball = { ...scenario.startingBall }
+  let controlledBall = { ...ball }
   let carrier = chooseBallCarrier(attackers, ball)
   let retained = true
   let shot = false
@@ -138,9 +139,10 @@ function simulatePossession(scenario: TacticalScenario, iteration: number, colle
     const carrierPoint = attackerPositions.get(carrier.playerId) ?? ball
     const pressure = nearestPressure(carrierPoint, defenders, defenderPositions, defenceTactics)
     const goalDistance = attackDirection === 1 ? 105 - carrierPoint.x : carrierPoint.x
-    const shotWeight = goalDistance < 32 ? (carrier.shootTendency / 100) * (1.25 - goalDistance / 55) : .01
+    const shotWeight = carrier.shootTendency / 100 * (goalDistance < 32 ? 1.25 - goalDistance / 55 : .01)
     const carryWeight = (carrier.carryTendency / 100) * (1 - pressure * .55) * (.75 + attackTactics.transitionSpeed / 200) * (attackTactics.buildUp === '混合推进' ? 1.12 : 1)
-    const passWeight = .7 + carrier.passForward / 180 + (attackTactics.buildUp === '短传组织' ? .25 : attackTactics.buildUp === '快速直接' ? .08 : .14)
+    const passWeight = attackers.length > 1 ? .7 + carrier.passForward / 180 + (attackTactics.buildUp === '短传组织' ? .25 : attackTactics.buildUp === '快速直接' ? .08 : .14) : 0
+    if (shotWeight + carryWeight + passWeight <= 0) break
     const actionType = random.pickWeighted([
       { item: 'shot' as const, weight: shotWeight }, { item: 'carry' as const, weight: carryWeight }, { item: 'pass' as const, weight: passWeight }
     ])
@@ -170,7 +172,8 @@ function simulatePossession(scenario: TacticalScenario, iteration: number, colle
         const point = attackerPositions.get(player.playerId)!
         const forward = (point.x - carrierPoint.x) * attackDirection
         const passDistance = distance(carrierPoint, point)
-        const focusBoost = attackTactics.focus === '均衡' ? 1 : attackTactics.focus === '左路' && point.y < 23 ? 1.45 : attackTactics.focus === '右路' && point.y > 45 ? 1.45 : attackTactics.focus === '中路' && point.y >= 23 && point.y <= 45 ? 1.45 : .8
+        const attackingY = attackDirection === 1 ? point.y : 68 - point.y
+        const focusBoost = attackTactics.focus === '均衡' ? 1 : attackTactics.focus === '左路' && attackingY < 23 ? 1.45 : attackTactics.focus === '右路' && attackingY > 45 ? 1.45 : attackTactics.focus === '中路' && attackingY >= 23 && attackingY <= 45 ? 1.45 : .8
         const directionPreference = forward >= 0 ? .45 + carrier.passForward / 85 : .6
         const riskFit = 1 - Math.abs(passDistance - (8 + carrier.passDirectness * .34)) / 48
         return { item: { player, point }, weight: Math.max(.04, focusBoost * directionPreference * Math.max(.12, riskFit) * (player.duty === '进攻' ? 1.18 : 1)) }
@@ -188,12 +191,16 @@ function simulatePossession(scenario: TacticalScenario, iteration: number, colle
       if (success) { carrier = target.player; attackerPositions.set(carrier.playerId, { ...ball }) }
     }
 
-    if ((attackDirection === 1 ? ball.x >= 88 : ball.x <= 17) && ball.y >= 14 && ball.y <= 54) boxEntries++
+    const inBox = (point: Vec2) => (attackDirection === 1 ? point.x >= 88.5 : point.x <= 16.5) && point.y >= 13.84 && point.y <= 54.16
+    if (retained) {
+      if (!inBox(carrierPoint) && inBox(ball)) boxEntries++
+      controlledBall = { ...ball }
+    }
     const attackingY = attackDirection === 1 ? ball.y : 68 - ball.y
     lanes[attackingY < 23 ? 0 : attackingY > 45 ? 2 : 1]++
   }
 
-  return { actions, shot, xg, retained, boxEntries, progression: Math.max(0, (ball.x - scenario.startingBall.x) * attackDirection), lanes, positions }
+  return { actions, shot, xg, retained, boxEntries, progression: Math.max(0, (controlledBall.x - scenario.startingBall.x) * attackDirection), lanes, positions }
 }
 
 function wilson(successes: number, total: number): [number, number] {
@@ -208,24 +215,30 @@ export function validateScenario(scenario: TacticalScenario): void {
   if (!scenario || typeof scenario !== 'object') throw new Error('战术方案无效')
   if (!Number.isInteger(scenario.iterations) || scenario.iterations < 1 || scenario.iterations > 50000) throw new Error('推演次数必须在 1–50000 之间')
   if (!Number.isInteger(scenario.maxActions) || scenario.maxActions < 1 || scenario.maxActions > 50) throw new Error('单回合动作数必须在 1–50 之间')
-  if (!Number.isInteger(scenario.seed)) throw new Error('随机种子必须为整数')
+  if (!Number.isSafeInteger(scenario.seed)) throw new Error('随机种子必须为安全整数')
   if (!Number.isFinite(scenario.startingBall?.x) || !Number.isFinite(scenario.startingBall?.y) || scenario.startingBall.x < 0 || scenario.startingBall.x > 105 || scenario.startingBall.y < 0 || scenario.startingBall.y > 68) throw new Error('起始球位置必须位于 105 × 68 米球场内')
   if (!['home', 'away'].includes(scenario.possession)) throw new Error('球权方无效')
-  if (!scenario.home?.length || !scenario.away?.length || scenario.home.length > 22 || scenario.away.length > 22) throw new Error('双方阵容必须各包含 1–22 名球员')
+  if (!Array.isArray(scenario.home) || !Array.isArray(scenario.away) || !scenario.home.length || !scenario.away.length || scenario.home.length > 22 || scenario.away.length > 22) throw new Error('双方阵容必须各包含 1–22 名球员')
   const players = [...scenario.home, ...scenario.away]
+  if (players.some(player => !player || typeof player !== 'object')) throw new Error('球员数据无效')
   if (new Set(players.map(player => player.playerId)).size !== players.length) throw new Error('球员 ID 必须唯一')
+  if (scenario.home.some(player => player.side !== 'home') || scenario.away.some(player => player.side !== 'away')) throw new Error('球员所属方与阵容不一致')
   for (const player of players) {
-    if (!player.playerId || !player.name) throw new Error('球员 ID 和姓名不能为空')
+    if (typeof player.playerId !== 'string' || !player.playerId.trim() || typeof player.name !== 'string' || !player.name.trim()) throw new Error('球员 ID 和姓名不能为空')
     if (!Number.isFinite(player.anchor?.x) || !Number.isFinite(player.anchor?.y) || player.anchor.x < 0 || player.anchor.x > 105 || player.anchor.y < 0 || player.anchor.y > 68) throw new Error(`${player.name} 的站位超出球场范围`)
-    const values = [player.passRisk, player.passForward, player.passDirectness, player.shootTendency, player.carryTendency, player.pressIntensity, player.marking, ...Object.values(player.attributes)]
+    const attributeKeys: Array<keyof PlayerTacticalProfile['attributes']> = ['passing', 'firstTouch', 'dribbling', 'shooting', 'pace', 'stamina', 'decisions', 'vision']
+    const values = [player.passRisk, player.passForward, player.passDirectness, player.shootTendency, player.carryTendency, player.pressIntensity, player.marking, ...attributeKeys.map(key => player.attributes?.[key])]
     if (values.some(value => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error(`${player.name} 的倾向或属性必须在 0–100 之间`)
     const instructionError = validatePlayerInstructions(player)
     if (instructionError) throw new Error(instructionError)
-    if (player.goalkeeping && Object.values(player.goalkeeping).some(value => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error(`${player.name} 的门将专项属性必须在 0–100 之间`)
+    const goalkeepingKeys: Array<keyof NonNullable<PlayerTacticalProfile['goalkeeping']>> = ['shotStopping', 'handling', 'aerialReach', 'oneOnOnes', 'rushingOut', 'distribution']
+    if (player.goalkeeping && goalkeepingKeys.some(key => !Number.isFinite(player.goalkeeping![key]) || player.goalkeeping![key] < 0 || player.goalkeeping![key] > 100)) throw new Error(`${player.name} 的门将专项属性必须在 0–100 之间`)
   }
   for (const tactics of [scenario.homeTactics, scenario.awayTactics]) {
+    if (!tactics || typeof tactics !== 'object') throw new Error('球队战术参数缺失')
     const values = [tactics.width, tactics.depth, tactics.defensiveLine, tactics.pressing, tactics.transitionSpeed]
     if (values.some(value => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error('球队战术参数必须在 0–100 之间')
+    if (!['短传组织', '混合推进', '快速直接'].includes(tactics.buildUp) || !['左路', '中路', '右路', '均衡'].includes(tactics.focus)) throw new Error('球队组织方式或进攻侧重无效')
   }
 }
 
@@ -290,6 +303,7 @@ export function simulateScenario(scenario: TacticalScenario, onProgress?: (compl
 export function compareScenarios(baseline: TacticalScenario, modified: TacticalScenario, onProgress?: (progress: number, phase: 'baseline' | 'modified') => void) {
   if (baseline.iterations !== modified.iterations) throw new Error('基准与修改方案必须使用相同推演次数')
   if (baseline.seed !== modified.seed) throw new Error('基准与修改方案必须使用相同随机种子')
+  if (baseline.maxActions !== modified.maxActions) throw new Error('基准与修改方案必须使用相同单回合动作数')
   const baselineResult = simulateScenario(baseline, (completed, total) => onProgress?.(completed / total * .5, 'baseline'))
   const modifiedResult = simulateScenario(modified, (completed, total) => onProgress?.(.5 + completed / total * .5, 'modified'))
   return {

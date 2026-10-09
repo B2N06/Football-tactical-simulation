@@ -23,9 +23,15 @@ export class TacticalDatabase {
       CREATE TABLE IF NOT EXISTS scenarios (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, updated_at TEXT NOT NULL, scenario_json TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS match_teams (
+        match_id TEXT NOT NULL, provider TEXT NOT NULL, team_id TEXT NOT NULL,
+        PRIMARY KEY (match_id, provider, team_id)
+      );
       CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(match_date);
       CREATE INDEX IF NOT EXISTS idx_matches_source ON matches(source);
+      CREATE INDEX IF NOT EXISTS idx_match_teams_lookup ON match_teams(provider, team_id, match_id);
     `)
+    this.backfillMatchTeams()
     this.persist()
   }
 
@@ -36,6 +42,23 @@ export class TacticalDatabase {
 
   private persist(): void { writeFileSync(this.path, Buffer.from(this.db.export())) }
 
+  private backfillMatchTeams(): void {
+    const existing = Number(this.db.exec('SELECT COUNT(*) FROM match_teams')[0]?.values[0]?.[0] ?? 0)
+    const matchCount = Number(this.db.exec('SELECT COUNT(*) FROM matches')[0]?.values[0]?.[0] ?? 0)
+    if (existing >= matchCount * 2) return
+    const rows = this.db.exec('SELECT id, source, bundle_json FROM matches')[0]?.values ?? []
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      for (const row of rows) {
+        const bundle = JSON.parse(String(row[2])) as CanonicalMatchBundle
+        for (const teamId of [bundle.match.homeTeamId, bundle.match.awayTeamId]) {
+          this.db.run('INSERT OR IGNORE INTO match_teams (match_id, provider, team_id) VALUES (?, ?, ?)', [String(row[0]), String(row[1]), teamId])
+        }
+      }
+      this.db.run('COMMIT')
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
   importBundle(bundle: CanonicalMatchBundle): void {
     const home = bundle.teams.find(team => team.id === bundle.match.homeTeamId)?.name ?? '主队'
     const away = bundle.teams.find(team => team.id === bundle.match.awayTeamId)?.name ?? '客队'
@@ -45,6 +68,10 @@ export class TacticalDatabase {
         (id, competition, season, match_date, home_team, away_team, event_count, frame_count, source, imported_at, bundle_json)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [bundle.match.id, bundle.match.competition, bundle.match.season, bundle.match.date,
         home, away, bundle.events.length, bundle.frames.length, bundle.source.provider, bundle.source.importedAt, JSON.stringify(bundle)])
+      this.db.run('DELETE FROM match_teams WHERE match_id = ?', [bundle.match.id])
+      for (const teamId of [bundle.match.homeTeamId, bundle.match.awayTeamId]) {
+        this.db.run('INSERT INTO match_teams (match_id, provider, team_id) VALUES (?, ?, ?)', [bundle.match.id, bundle.source.provider, teamId])
+      }
       this.db.run('COMMIT')
       this.persist()
     } catch (error) {
@@ -101,9 +128,15 @@ export class TacticalDatabase {
     const primary = this.getMatchBundle(matchId)
     const participated = (bundle: CanonicalMatchBundle) => bundle.match.homeTeamId === teamId || bundle.match.awayTeamId === teamId
     if (!participated(primary)) throw new Error('所选球队未参加基准比赛')
-    const result = this.db.exec('SELECT bundle_json FROM matches ORDER BY match_date DESC, imported_at DESC')
-    const candidates = (result[0]?.values ?? []).map(row => JSON.parse(String(row[0])) as CanonicalMatchBundle)
-      .filter(bundle => bundle.source.provider === primary.source.provider && participated(bundle))
+    const statement = this.db.prepare(`SELECT m.bundle_json FROM matches m
+      INNER JOIN match_teams mt ON mt.match_id = m.id
+      WHERE mt.provider = ? AND mt.team_id = ?
+      ORDER BY m.match_date DESC, m.imported_at DESC LIMIT ?`)
+    const candidates: CanonicalMatchBundle[] = []
+    try {
+      statement.bind([primary.source.provider, teamId, Math.max(1, Math.min(50, limit))])
+      while (statement.step()) candidates.push(JSON.parse(String(statement.get()[0])) as CanonicalMatchBundle)
+    } finally { statement.free() }
     const ordered = [primary, ...candidates.filter(bundle => bundle.match.id !== primary.match.id)]
     return ordered.slice(0, Math.max(1, Math.min(50, limit)))
   }
