@@ -5,6 +5,7 @@ import { ImportService } from '../../electron/importer'
 import { statsBombEventsToBundle } from '../providers/statsbomb'
 import { parseCanonicalBundle, parseTrackingCsv } from '../providers/canonical'
 import { DisabledAiProvider } from '../providers/ai'
+import { footballDataMatchToBundle } from '../providers/footballData'
 
 describe('数据适配器', () => {
   it('转换 StatsBomb 事件并保留原始数据', () => {
@@ -52,5 +53,49 @@ describe('数据适配器', () => {
     const preview = await service.preview(fileURLToPath(new URL('../../examples/demo-match-canonical.json', import.meta.url)))
     expect(preview).toMatchObject({ valid: true, format: 'canonical-json', playerCount: 22, eventCount: 30, frameCount: 4 })
     expect(service.take(preview.token).match.id).toBe('demo-canonical-2026-001')
+  })
+  it('统一追踪球员 ID 并拒绝空值、重复坐标和冲突身份', () => {
+    const header = 'second,player_id,teammate,x,y\n'
+    const bundle = parseTrackingCsv(`${header}0, p1 ,true,10,20\n1,p1,true,11,20`, 'spaces.csv')
+    expect(bundle.players.map(player => player.id)).toEqual(['p1'])
+    expect(bundle.frames[0].players[0].playerId).toBe('p1')
+    expect(() => parseTrackingCsv(`${header},p1,true,10,20`, 'blank.csv')).toThrow('second 字段不能为空')
+    expect(() => parseTrackingCsv(`${header}0,p1,true,,20`, 'blank.csv')).toThrow('x 字段不能为空')
+    expect(() => parseTrackingCsv(`${header}0,p1,maybe,10,20`, 'boolean.csv')).toThrow('teammate')
+    expect(() => parseTrackingCsv(`${header}0,p1,true,10,20\n0,p1,true,11,20`, 'duplicate.csv')).toThrow('重复坐标')
+    expect(() => parseTrackingCsv(`${header}0,p1,true,10,20\n1,p1,false,11,20`, 'side.csv')).toThrow('所属方前后不一致')
+    expect(() => parseTrackingCsv(header, 'empty.csv')).toThrow('没有追踪数据行')
+  })
+  it('拒绝同一追踪帧的相互矛盾的皮球坐标', () => {
+    const csv = 'second,player_id,teammate,x,y,ball_x,ball_y\n0,p1,true,10,20,30,34\n0,p2,false,20,20,31,34'
+    expect(() => parseTrackingCsv(csv, 'ball.csv')).toThrow('皮球坐标不一致')
+  })
+  it('标准 JSON 拒绝负时间与无效 xG', () => {
+    const bundle = JSON.parse(readFileSync(new URL('../../examples/demo-match-canonical.json', import.meta.url), 'utf8'))
+    bundle.events[0].second = -1
+    expect(() => parseCanonicalBundle(bundle)).toThrow('events.0.second')
+    bundle.events[0].second = 0; bundle.events[0].xg = 1.5
+    expect(() => parseCanonicalBundle(bundle)).toThrow('events.0.xg')
+  })
+  it('单队事件与双队阵容合并时不把两支球队映射为同一队', () => {
+    const bundle = statsBombEventsToBundle([
+      { id: 'a', match_id: 7, type: { name: 'Shot' }, team: { id: 1, name: 'A' }, player: { id: 11, name: '甲' }, location: [100, 40], shot: { outcome: { name: 'Saved' }, statsbomb_xg: .2 } }
+    ], [{ team_id: 1, team_name: 'A', lineup: [] }, { team_id: 2, team_name: 'B', lineup: [] }])
+    expect(bundle.match.homeTeamId).toBe('1')
+    expect(bundle.match.awayTeamId).toBe('2')
+    expect(bundle.teams).toHaveLength(2)
+    expect(bundle.events[0].outcome).toBe('failure')
+  })
+  it('football-data 浏览器与桌面共用映射，支持暂无阵容并校验错误响应', () => {
+    const metadata = { homeTeam: { id: 1, name: 'A' }, awayTeam: { id: 2, name: 'B' } }
+    const bundle = footballDataMatchToBundle(metadata, '42')
+    expect(bundle.match).toMatchObject({ id: 'football-data-42', homeTeamId: '1', awayTeamId: '2' })
+    expect(bundle.players).toEqual([])
+    expect(() => footballDataMatchToBundle({}, '42')).toThrow('主队缺少有效 ID')
+    expect(() => footballDataMatchToBundle({ ...metadata, awayTeam: { id: 1, name: 'B' } }, '42')).toThrow('不能相同')
+    const player = { id: 11, name: '甲', shirtNumber: 7, position: 'Midfield' }
+    const duplicate = footballDataMatchToBundle({ ...metadata, homeTeam: { ...metadata.homeTeam, lineup: [player], bench: [player] } }, '42')
+    expect(duplicate.players).toHaveLength(1)
+    expect(duplicate.lineups[0].starter).toBe(true)
   })
 })

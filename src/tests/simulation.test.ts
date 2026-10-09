@@ -88,5 +88,65 @@ describe('蒙特卡洛战术推演', () => {
     expect(() => compareScenarios(baseline, modified)).toThrow('相同推演次数')
     modified.iterations = baseline.iterations; modified.seed += 1
     expect(() => compareScenarios(baseline, modified)).toThrow('相同随机种子')
+    modified.seed = baseline.seed; modified.maxActions += 1
+    expect(() => compareScenarios(baseline, modified)).toThrow('相同单回合动作数')
+  })
+  it('合法单人持球阵容不会选择没有接球队友的传球', () => {
+    const scenario = createDemoScenario(); scenario.home = [scenario.home[9]]; scenario.iterations = 80
+    scenario.startingBall = { ...scenario.home[0].anchor }
+    const result = simulateScenario(scenario)
+    expect(result.passNetwork).toHaveLength(0)
+    expect(Object.values(result.metrics).every(Number.isFinite)).toBe(true)
+  })
+  it('禁用射门和带球的单人方案保留球权，不强制生成射门', () => {
+    const scenario = createDemoScenario(); scenario.home = [scenario.home[9]]; scenario.iterations = 12
+    scenario.home[0].shootTendency = 0; scenario.home[0].carryTendency = 0
+    scenario.startingBall = { x: 25, y: 34 }; scenario.home[0].anchor = { ...scenario.startingBall }
+    const result = simulateScenario(scenario)
+    expect(result.metrics.shotRate).toBe(0)
+    expect(result.metrics.retentionRate).toBe(1)
+    expect(result.representativeSuccess).toEqual([])
+  })
+  it('客队左路侧重使用持球方视角的左侧', () => {
+    const scenario = createDemoScenario(); scenario.possession = 'away'; scenario.iterations = 700; scenario.maxActions = 1
+    scenario.away = scenario.away.slice(6, 9)
+    scenario.away.forEach((player, index) => {
+      player.anchor = index === 0 ? { x: 60, y: 34 } : index === 1 ? { x: 45, y: 58 } : { x: 45, y: 10 }
+      player.runPattern = '回撤接应'; player.shootTendency = 0; player.carryTendency = 0
+    })
+    scenario.startingBall = { x: 60, y: 34 }; scenario.awayTactics.focus = '左路'
+    const result = simulateScenario(scenario)
+    expect(result.metrics.leftShare).toBeGreaterThan(result.metrics.rightShare)
+  })
+  it('禁区内动作不重复记为进入禁区，失败推进不增加已完成推进距离', () => {
+    const scenario = createDemoScenario(); scenario.home = [scenario.home[9]]; scenario.iterations = 1; scenario.maxActions = 1
+    scenario.home[0].anchor = { x: 92, y: 34 }; scenario.startingBall = { x: 92, y: 34 }
+    scenario.home[0].shootTendency = 0; scenario.home[0].carryTendency = 100
+    expect(simulateScenario(scenario).metrics.boxEntries).toBe(0)
+    let failedRun = false
+    for (let seed = 1; seed <= 80 && !failedRun; seed++) {
+      scenario.seed = seed
+      const result = simulateScenario(scenario)
+      if (result.representativeFailure[0]?.success === false) {
+        expect(result.metrics.averageProgression).toBe(0)
+        failedRun = true
+      }
+    }
+    expect(failedRun).toBe(true)
+  })
+  it('必需属性缺失和无效球队指令在计算前被拦截', () => {
+    const scenario = createDemoScenario()
+    delete (scenario.home[0].attributes as Partial<typeof scenario.home[0]['attributes']>).passing
+    expect(() => validateScenario(scenario)).toThrow('0–100')
+    scenario.home[0].attributes.passing = 70
+    scenario.home[0].side = 'away'
+    expect(() => validateScenario(scenario)).toThrow('所属方与阵容不一致')
+    scenario.home[0].side = 'home'
+    scenario.homeTactics.focus = '未知' as never
+    expect(() => validateScenario(scenario)).toThrow('组织方式或进攻侧重无效')
+  })
+  it('超出安全整数范围的随机种子被拒绝', () => {
+    const scenario = createDemoScenario(); scenario.seed = Number.MAX_SAFE_INTEGER + 1
+    expect(() => validateScenario(scenario)).toThrow('安全整数')
   })
 })

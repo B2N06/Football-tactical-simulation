@@ -11,4 +11,9 @@ describe('坐标归一化', () => {
     expect(normalizeCoordinate({ x: 300, y: -4 }, 105, 68)).toEqual({ x: 105, y: 0 })
   })
   it('拒绝无效坐标系', () => expect(() => normalizeCoordinate({ x: 1, y: 1 }, 0, 68)).toThrow())
+  it('拒绝非有限坐标和球场尺寸，防止 NaN 进入数据模型', () => {
+    expect(() => normalizeStatsBomb([NaN, 40])).toThrow('有限数字')
+    expect(() => normalizeCoordinate({ x: 1, y: 1 }, Infinity, 68)).toThrow('有限数字')
+    expect(() => normalizeCoordinate({ x: Infinity, y: 1 }, 105, 68)).toThrow('有限数字')
+  })
 })

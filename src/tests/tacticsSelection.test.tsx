@@ -10,7 +10,8 @@ describe('战术编辑器球员选择回归', () => {
       value: {
         getDatabaseSummary: vi.fn().mockResolvedValue({ matches: 0, teams: 0, players: 0, events: 0, frames: 0, scenarios: 0 }),
         listMatches: vi.fn().mockResolvedValue([]),
-        getAppInfo: vi.fn().mockResolvedValue({ version: 'test', databasePath: 'test.sqlite', platform: 'test' })
+        getAppInfo: vi.fn().mockResolvedValue({ version: 'test', databasePath: 'test.sqlite', platform: 'test' }),
+        saveScenario: vi.fn().mockResolvedValue({ ok: true })
       }
     })
   })
@@ -44,5 +45,22 @@ describe('战术编辑器球员选择回归', () => {
     const awayStriker = container.querySelector<HTMLButtonElement>('[data-player-id="away-9"]')!
     fireEvent.click(awayStriker)
     expect(screen.getByTestId('player-inspector').dataset.selectedPlayerId).toBe('away-9')
+  })
+
+  it('可撤销、重做球员职责修改，并显式保存方案', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByText('战术编辑器').closest('button')!)
+    const duty = screen.getByText('职责').closest('label')!.querySelector('select')!
+    expect(duty.value).toBe('进攻')
+
+    fireEvent.change(duty, { target: { value: '支援' } })
+    expect(duty.value).toBe('支援')
+    fireEvent.click(screen.getByRole('button', { name: '撤销' }))
+    expect(duty.value).toBe('进攻')
+    fireEvent.click(screen.getByRole('button', { name: '重做' }))
+    expect(duty.value).toBe('支援')
+
+    fireEvent.click(screen.getByRole('button', { name: '保存方案' }))
+    expect(window.footballApi.saveScenario).toHaveBeenCalled()
   })
 })

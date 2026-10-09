@@ -19,6 +19,11 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm build:web
+      - uses: actions/upload-artifact@v7
+        with:
+          name: football-tactical-simulation-web
+          path: dist/web/
 
   package-windows:
     runs-on: windows-latest
